@@ -18,6 +18,14 @@ fn format_statement(statement: &Statement, output: &mut String, indent: usize) {
     match statement {
         Statement::Select(query) => format_select_query(query, output, indent),
         Statement::SetOperation(op) => format_set_operation(op, output, indent),
+        Statement::CreateTable(stmt) => format_create_table(stmt, output, indent),
+        Statement::DropTable(stmt) => format_drop_table(stmt, output, indent),
+        Statement::Describe(stmt) => format_describe(stmt, output, indent),
+        Statement::ShowTables(stmt) => format_show_tables(stmt, output, indent),
+        Statement::InsertInto(stmt) => format_insert_into(stmt, output, indent),
+        Statement::DeleteFrom(stmt) => format_delete_from(stmt, output, indent),
+        Statement::SetConfig(stmt) => format_set_config(stmt, output, indent),
+        Statement::UseDatabase(stmt) => format_use_database(stmt, output, indent),
     }
 }
 
@@ -365,4 +373,130 @@ fn format_order_by_clause(order_by: &OrderByClause, output: &mut String, _indent
 fn format_limit_clause(limit: &LimitClause, output: &mut String, _indent: usize) {
     output.push_str("LIMIT ");
     output.push_str(&limit.count);
+}
+
+// DDL Statement Formatters
+
+fn format_create_table(stmt: &CreateTableStmt, output: &mut String, indent: usize) {
+    // Format leading comments
+    for comment in &stmt.leading_comments {
+        format_comment(comment, output, indent);
+    }
+    
+    output.push_str("CREATE TABLE ");
+    output.push_str(&stmt.table_name);
+    output.push_str(" (");
+    output.push('\n');
+    
+    for (i, col) in stmt.columns.iter().enumerate() {
+        if i == 0 {
+            // First item: 5 spaces
+            output.push_str(&" ".repeat(FIRST_ITEM_INDENT));
+        } else {
+            // Subsequent items: 4 spaces + comma
+            output.push_str(&" ".repeat(BASE_INDENT));
+            output.push(',');
+        }
+        output.push_str(&col.name);
+        output.push(' ');
+        output.push_str(&col.data_type.to_uppercase());
+        output.push('\n');
+    }
+    
+    output.push(')');
+}
+
+fn format_drop_table(stmt: &DropTableStmt, output: &mut String, indent: usize) {
+    // Format leading comments
+    for comment in &stmt.leading_comments {
+        format_comment(comment, output, indent);
+    }
+    
+    output.push_str("DROP TABLE");
+    if stmt.if_exists {
+        output.push_str(" IF EXISTS");
+    }
+    output.push(' ');
+    output.push_str(&stmt.table_name);
+}
+
+fn format_describe(stmt: &DescribeStmt, output: &mut String, indent: usize) {
+    // Format leading comments
+    for comment in &stmt.leading_comments {
+        format_comment(comment, output, indent);
+    }
+    
+    output.push_str("DESCRIBE");
+    if stmt.extended {
+        output.push_str(" EXTENDED");
+    }
+    output.push(' ');
+    output.push_str(&stmt.table_name);
+}
+
+fn format_show_tables(stmt: &ShowTablesStmt, output: &mut String, indent: usize) {
+    // Format leading comments
+    for comment in &stmt.leading_comments {
+        format_comment(comment, output, indent);
+    }
+    
+    output.push_str("SHOW TABLES");
+    if let Some(ref db) = stmt.in_database {
+        output.push_str(" IN ");
+        output.push_str(db);
+    }
+}
+
+// DML Statement Formatters
+
+fn format_insert_into(stmt: &InsertIntoStmt, output: &mut String, indent: usize) {
+    // Format leading comments
+    for comment in &stmt.leading_comments {
+        format_comment(comment, output, indent);
+    }
+    
+    output.push_str("INSERT INTO ");
+    output.push_str(&stmt.table_name);
+    output.push('\n');
+    
+    format_statement(&stmt.query, output, indent);
+}
+
+fn format_delete_from(stmt: &DeleteFromStmt, output: &mut String, indent: usize) {
+    // Format leading comments
+    for comment in &stmt.leading_comments {
+        format_comment(comment, output, indent);
+    }
+    
+    output.push_str("DELETE FROM ");
+    output.push_str(&stmt.table_name);
+    
+    if let Some(ref where_clause) = stmt.where_clause {
+        output.push('\n');
+        format_where_clause(where_clause, output, indent);
+    }
+}
+
+// Session Statement Formatters
+
+fn format_set_config(stmt: &SetConfigStmt, output: &mut String, indent: usize) {
+    // Format leading comments
+    for comment in &stmt.leading_comments {
+        format_comment(comment, output, indent);
+    }
+    
+    output.push_str("SET ");
+    output.push_str(&stmt.key);
+    output.push('=');
+    output.push_str(&stmt.value);
+}
+
+fn format_use_database(stmt: &UseDatabaseStmt, output: &mut String, indent: usize) {
+    // Format leading comments
+    for comment in &stmt.leading_comments {
+        format_comment(comment, output, indent);
+    }
+    
+    output.push_str("USE ");
+    output.push_str(&stmt.database_name);
 }

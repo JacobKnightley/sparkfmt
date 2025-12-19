@@ -87,7 +87,7 @@ impl Lexer {
             let start_line = self.line;
             let start_col = self.col;
             
-            // Collect single-line comments BUT DON'T CONTINUE - let them be trailing
+            // Collect single-line comments
             if remaining.starts_with("--") {
                 if let Some(newline_pos) = remaining.find('\n') {
                     let comment_text = remaining[..newline_pos].to_string();
@@ -99,8 +99,8 @@ impl Lexer {
                         is_hint: false,
                     });
                     self.advance_by(newline_pos + 1);
-                    // STOP here - don't continue skipping on the next line
-                    break;
+                    // Continue to skip whitespace after the comment for leading comments
+                    continue;
                 } else {
                     let comment_text = remaining.to_string();
                     self.comments.push(CommentInfo {
@@ -283,16 +283,49 @@ impl Lexer {
 }
 
 fn parse_statement(lexer: &mut Lexer) -> Result<Statement, FormatError> {
-    // Check for WITH clause
-    let with_clause = if lexer.is_keyword("WITH")? {
-        Some(parse_with_clause(lexer)?)
-    } else {
-        None
-    };
+    // Check what kind of statement this is
+    let token = lexer.peek()?;
     
-    // Parse the main SELECT
-    let select = parse_select_query(lexer, with_clause)?;
-    
+    match token {
+        Token::Word(w) => {
+            let word_upper = w.to_uppercase();
+            match word_upper.as_str() {
+                "CREATE" | "DROP" | "DESCRIBE" | "DESC" | "SHOW" | "INSERT" | "DELETE" | "SET" | "USE" => {
+                    // For DDL/DML/session statements, collect leading comments
+                    lexer.skip_whitespace();
+                    let leading_comments = collect_leading_comments(lexer);
+                    
+                    match word_upper.as_str() {
+                        "CREATE" => parse_create_statement(lexer, leading_comments),
+                        "DROP" => parse_drop_statement(lexer, leading_comments),
+                        "DESCRIBE" | "DESC" => parse_describe_statement(lexer, leading_comments),
+                        "SHOW" => parse_show_statement(lexer, leading_comments),
+                        "INSERT" => parse_insert_statement(lexer, leading_comments),
+                        "DELETE" => parse_delete_statement(lexer, leading_comments),
+                        "SET" => parse_set_statement(lexer, leading_comments),
+                        "USE" => parse_use_statement(lexer, leading_comments),
+                        _ => unreachable!()
+                    }
+                },
+                "WITH" => {
+                    // WITH clause for SELECT - parse_select_query handles comments
+                    let with_clause = Some(parse_with_clause(lexer)?);
+                    let select = parse_select_query(lexer, with_clause)?;
+                    check_for_union(lexer, select)
+                },
+                "SELECT" => {
+                    // SELECT - parse_select_query handles comments
+                    let select = parse_select_query(lexer, None)?;
+                    check_for_union(lexer, select)
+                },
+                _ => Err(FormatError::new(format!("Unexpected statement starting with: {}", w)))
+            }
+        },
+        _ => Err(FormatError::new("Expected statement keyword"))
+    }
+}
+
+fn check_for_union(lexer: &mut Lexer, select: SelectQuery) -> Result<Statement, FormatError> {
     // Check for UNION
     if lexer.is_keyword("UNION")? {
         lexer.expect_keyword("UNION")?;
@@ -927,4 +960,220 @@ fn parse_limit_clause(lexer: &mut Lexer) -> Result<LimitClause, FormatError> {
         _ => return Err(FormatError::new("Expected number after LIMIT")),
     };
     Ok(LimitClause { count })
+}
+
+// Helper function to collect leading comments
+fn collect_leading_comments(lexer: &mut Lexer) -> Vec<Comment> {
+    let comments: Vec<Comment> = lexer.comments.iter()
+        .filter(|c| !c.is_hint)
+        .map(|c| Comment {
+            text: c.text.clone(),
+            is_line_comment: c.is_line_comment,
+            attachment: CommentAttachment::Leading,
+        })
+        .collect();
+    
+    // Clear collected comments
+    lexer.comments.clear();
+    
+    comments
+}
+
+// DDL Statement Parsers
+
+fn parse_create_statement(lexer: &mut Lexer, leading_comments: Vec<Comment>) -> Result<Statement, FormatError> {
+    lexer.expect_keyword("CREATE")?;
+    
+    if lexer.is_keyword("TABLE")? {
+        parse_create_table(lexer, leading_comments)
+    } else {
+        Err(FormatError::new("Only CREATE TABLE is currently supported"))
+    }
+}
+
+fn parse_create_table(lexer: &mut Lexer, leading_comments: Vec<Comment>) -> Result<Statement, FormatError> {
+    lexer.expect_keyword("TABLE")?;
+    let table_name = parse_identifier(lexer)?;
+    
+    lexer.expect_symbol("(")?;
+    let mut columns = Vec::new();
+    
+    loop {
+        let col_name = parse_identifier(lexer)?;
+        let data_type = parse_identifier(lexer)?; // Simple type parsing
+        
+        columns.push(ColumnDef {
+            name: col_name,
+            data_type,
+        });
+        
+        let token = lexer.peek()?;
+        if matches!(token, Token::Symbol(s) if s == ",") {
+            lexer.next()?;
+        } else {
+            break;
+        }
+    }
+    
+    lexer.expect_symbol(")")?;
+    
+    Ok(Statement::CreateTable(CreateTableStmt {
+        table_name,
+        columns,
+        leading_comments,
+    }))
+}
+
+fn parse_drop_statement(lexer: &mut Lexer, leading_comments: Vec<Comment>) -> Result<Statement, FormatError> {
+    lexer.expect_keyword("DROP")?;
+    lexer.expect_keyword("TABLE")?;
+    
+    let if_exists = if lexer.is_keyword("IF")? {
+        lexer.expect_keyword("IF")?;
+        lexer.expect_keyword("EXISTS")?;
+        true
+    } else {
+        false
+    };
+    
+    let table_name = parse_identifier(lexer)?;
+    
+    Ok(Statement::DropTable(DropTableStmt {
+        table_name,
+        if_exists,
+        leading_comments,
+    }))
+}
+
+fn parse_describe_statement(lexer: &mut Lexer, leading_comments: Vec<Comment>) -> Result<Statement, FormatError> {
+    // DESCRIBE or DESC
+    if lexer.is_keyword("DESCRIBE")? {
+        lexer.expect_keyword("DESCRIBE")?;
+    } else {
+        lexer.expect_keyword("DESC")?;
+    }
+    
+    let extended = if lexer.is_keyword("EXTENDED")? {
+        lexer.expect_keyword("EXTENDED")?;
+        true
+    } else {
+        false
+    };
+    
+    // Optional TABLE keyword
+    let _ = lexer.is_keyword("TABLE")?;
+    if lexer.is_keyword("TABLE")? {
+        lexer.expect_keyword("TABLE")?;
+    }
+    
+    let table_name = parse_identifier(lexer)?;
+    
+    Ok(Statement::Describe(DescribeStmt {
+        extended,
+        table_name,
+        leading_comments,
+    }))
+}
+
+fn parse_show_statement(lexer: &mut Lexer, leading_comments: Vec<Comment>) -> Result<Statement, FormatError> {
+    lexer.expect_keyword("SHOW")?;
+    lexer.expect_keyword("TABLES")?;
+    
+    let in_database = if lexer.is_keyword("IN")? {
+        lexer.expect_keyword("IN")?;
+        Some(parse_identifier(lexer)?)
+    } else {
+        None
+    };
+    
+    Ok(Statement::ShowTables(ShowTablesStmt {
+        in_database,
+        leading_comments,
+    }))
+}
+
+// DML Statement Parsers
+
+fn parse_insert_statement(lexer: &mut Lexer, leading_comments: Vec<Comment>) -> Result<Statement, FormatError> {
+    lexer.expect_keyword("INSERT")?;
+    lexer.expect_keyword("INTO")?;
+    
+    let table_name = parse_identifier(lexer)?;
+    
+    // Parse the SELECT query
+    let query = Box::new(parse_statement(lexer)?);
+    
+    Ok(Statement::InsertInto(InsertIntoStmt {
+        table_name,
+        query,
+        leading_comments,
+    }))
+}
+
+fn parse_delete_statement(lexer: &mut Lexer, leading_comments: Vec<Comment>) -> Result<Statement, FormatError> {
+    lexer.expect_keyword("DELETE")?;
+    lexer.expect_keyword("FROM")?;
+    
+    let table_name = parse_identifier(lexer)?;
+    
+    let where_clause = if lexer.is_keyword("WHERE")? {
+        Some(parse_where_clause(lexer)?)
+    } else {
+        None
+    };
+    
+    Ok(Statement::DeleteFrom(DeleteFromStmt {
+        table_name,
+        where_clause,
+        leading_comments,
+    }))
+}
+
+// Session Statement Parsers
+
+fn parse_set_statement(lexer: &mut Lexer, leading_comments: Vec<Comment>) -> Result<Statement, FormatError> {
+    lexer.expect_keyword("SET")?;
+    
+    // Parse key which might be dotted (e.g., spark.sql.shuffle.partitions)
+    let mut key = parse_identifier(lexer)?;
+    
+    // Handle dotted identifiers
+    while lexer.peek()? == Token::Symbol(".".to_string()) {
+        lexer.expect_symbol(".")?;
+        key.push('.');
+        key.push_str(&parse_identifier(lexer)?);
+    }
+    
+    lexer.expect_symbol("=")?;
+    
+    // Value can be number or identifier
+    let token = lexer.next()?;
+    let value = match token {
+        Token::Word(w) => w,
+        Token::Number(n) => n,
+        Token::StringLiteral(s) => s,
+        _ => return Err(FormatError::new("Expected value after =")),
+    };
+    
+    Ok(Statement::SetConfig(SetConfigStmt {
+        key,
+        value,
+        leading_comments,
+    }))
+}
+
+fn parse_use_statement(lexer: &mut Lexer, leading_comments: Vec<Comment>) -> Result<Statement, FormatError> {
+    lexer.expect_keyword("USE")?;
+    
+    // Optional DATABASE keyword
+    if lexer.is_keyword("DATABASE")? {
+        lexer.expect_keyword("DATABASE")?;
+    }
+    
+    let database_name = parse_identifier(lexer)?;
+    
+    Ok(Statement::UseDatabase(UseDatabaseStmt {
+        database_name,
+        leading_comments,
+    }))
 }

@@ -1,8 +1,87 @@
-/// Internal representation of a SQL query
+/// Internal representation of a SQL statement
 #[derive(Debug, Clone, PartialEq)]
 pub enum Statement {
     Select(SelectQuery),
     SetOperation(SetOperation),
+    // DDL
+    CreateTable(CreateTableStmt),
+    DropTable(DropTableStmt),
+    Describe(DescribeStmt),
+    ShowTables(ShowTablesStmt),
+    // DML
+    InsertInto(InsertIntoStmt),
+    DeleteFrom(DeleteFromStmt),
+    // Session
+    SetConfig(SetConfigStmt),
+    UseDatabase(UseDatabaseStmt),
+}
+
+/// CREATE TABLE statement
+#[derive(Debug, Clone, PartialEq)]
+pub struct CreateTableStmt {
+    pub table_name: String,
+    pub columns: Vec<ColumnDef>,
+    pub leading_comments: Vec<Comment>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ColumnDef {
+    pub name: String,
+    pub data_type: String,
+}
+
+/// DROP TABLE statement
+#[derive(Debug, Clone, PartialEq)]
+pub struct DropTableStmt {
+    pub table_name: String,
+    pub if_exists: bool,
+    pub leading_comments: Vec<Comment>,
+}
+
+/// DESCRIBE statement
+#[derive(Debug, Clone, PartialEq)]
+pub struct DescribeStmt {
+    pub extended: bool,
+    pub table_name: String,
+    pub leading_comments: Vec<Comment>,
+}
+
+/// SHOW TABLES statement
+#[derive(Debug, Clone, PartialEq)]
+pub struct ShowTablesStmt {
+    pub in_database: Option<String>,
+    pub leading_comments: Vec<Comment>,
+}
+
+/// INSERT INTO statement
+#[derive(Debug, Clone, PartialEq)]
+pub struct InsertIntoStmt {
+    pub table_name: String,
+    pub query: Box<Statement>,
+    pub leading_comments: Vec<Comment>,
+}
+
+/// DELETE FROM statement
+#[derive(Debug, Clone, PartialEq)]
+pub struct DeleteFromStmt {
+    pub table_name: String,
+    pub where_clause: Option<WhereClause>,
+    pub leading_comments: Vec<Comment>,
+}
+
+/// SET configuration statement
+#[derive(Debug, Clone, PartialEq)]
+pub struct SetConfigStmt {
+    pub key: String,
+    pub value: String,
+    pub leading_comments: Vec<Comment>,
+}
+
+/// USE database statement
+#[derive(Debug, Clone, PartialEq)]
+pub struct UseDatabaseStmt {
+    pub database_name: String,
+    pub leading_comments: Vec<Comment>,
 }
 
 /// Comment with anchoring information
