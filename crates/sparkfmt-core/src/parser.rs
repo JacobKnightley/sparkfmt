@@ -175,7 +175,7 @@ fn is_keyword(s: &str) -> bool {
         "SELECT" | "FROM" | "WHERE" | "GROUP" | "BY" | "HAVING" | "ORDER" | "LIMIT" |
         "INNER" | "LEFT" | "RIGHT" | "FULL" | "OUTER" | "CROSS" | "JOIN" | "ON" |
         "AND" | "OR" | "NOT" | "IN" | "IS" | "NULL" | "AS" | "DISTINCT" |
-        "UNION" | "ALL" | "WITH"
+        "UNION" | "ALL" | "WITH" | "ASC" | "DESC"
     )
 }
 

@@ -16,7 +16,3 @@ console_error_panic_hook = { workspace = true, optional = true }
 
 [features]
 default = ["console_error_panic_hook"]
-
-[profile.release]
-opt-level = "z"
-lto = true

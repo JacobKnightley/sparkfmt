@@ -23,3 +23,7 @@ console_error_panic_hook = "0.1"
 
 # Testing dependencies
 insta = "1.34"
+
+[profile.release]
+opt-level = "z"
+lto = true
