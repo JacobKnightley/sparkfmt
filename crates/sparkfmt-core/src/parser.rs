@@ -239,7 +239,7 @@ impl Lexer {
         }
         
         // Try single-char symbols
-        for symbol in &["(", ")", ",", ".", "*", "=", "<", ">", "!", "+", "-", "/", "|", "[", "]"] {
+        for symbol in &["(", ")", ",", ".", "*", "=", "<", ">", "!", "+", "-", "/", "|", "[", "]", "~"] {
             if remaining.starts_with(symbol) {
                 self.advance_by(symbol.len());
                 return Ok(ParserToken::Symbol(symbol.to_string()));
@@ -266,6 +266,7 @@ impl Lexer {
         let token = self.next()?;
         match token {
             ParserToken::Word(w) => Ok(w), // Return original casing
+            ParserToken::QuotedIdentifier(q) => Ok(format!("`{}`", q)), // Return with backticks
             _ => Err(FormatError::new(format!("Expected identifier, got {:?}", token))),
         }
     }
@@ -821,6 +822,36 @@ fn parse_postfix_expression(lexer: &mut Lexer) -> Result<Expression, FormatError
                     index: Box::new(index),
                 };
             }
+            ParserToken::Word(w) if w.eq_ignore_ascii_case("OVER") => {
+                lexer.expect_keyword("OVER")?;
+                lexer.expect_symbol("(")?;
+                
+                let partition_by = if lexer.is_keyword("PARTITION")? {
+                    lexer.expect_keyword("PARTITION")?;
+                    lexer.expect_keyword("BY")?;
+                    parse_expression_list(lexer)?
+                } else {
+                    Vec::new()
+                };
+                
+                let order_by = if lexer.is_keyword("ORDER")? {
+                    lexer.expect_keyword("ORDER")?;
+                    lexer.expect_keyword("BY")?;
+                    parse_order_by_items(lexer)?
+                } else {
+                    Vec::new()
+                };
+                
+                let frame = parse_window_frame_opt(lexer)?;
+                lexer.expect_symbol(")")?;
+                
+                expr = Expression::WindowFunction {
+                    function: Box::new(expr),
+                    partition_by,
+                    order_by,
+                    frame,
+                };
+            }
             _ => break,
         }
     }
@@ -1254,6 +1285,120 @@ fn parse_limit_clause(lexer: &mut Lexer) -> Result<LimitClause, FormatError> {
         _ => return Err(FormatError::new("Expected number after LIMIT")),
     };
     Ok(LimitClause { count })
+}
+
+fn parse_expression_list(lexer: &mut Lexer) -> Result<Vec<Expression>, FormatError> {
+    let mut items = Vec::new();
+    
+    loop {
+        items.push(parse_expression(lexer)?);
+        
+        let token = lexer.peek()?;
+        if matches!(token, ParserToken::Symbol(s) if s == ",") {
+            lexer.next()?;
+        } else {
+            break;
+        }
+    }
+    
+    Ok(items)
+}
+
+fn parse_order_by_items(lexer: &mut Lexer) -> Result<Vec<OrderByItem>, FormatError> {
+    let mut items = Vec::new();
+    
+    loop {
+        let expr = parse_expression(lexer)?;
+        
+        let direction = if lexer.is_keyword("ASC")? {
+            lexer.expect_keyword("ASC")?;
+            Some(OrderDirection::Asc)
+        } else if lexer.is_keyword("DESC")? {
+            lexer.expect_keyword("DESC")?;
+            Some(OrderDirection::Desc)
+        } else {
+            None
+        };
+        
+        items.push(OrderByItem { expr, direction });
+        
+        let token = lexer.peek()?;
+        if matches!(token, ParserToken::Symbol(s) if s == ",") {
+            lexer.next()?;
+        } else {
+            break;
+        }
+    }
+    
+    Ok(items)
+}
+
+fn parse_window_frame_opt(lexer: &mut Lexer) -> Result<Option<WindowFrame>, FormatError> {
+    // Check for ROWS or RANGE
+    if !lexer.is_keyword("ROWS")? && !lexer.is_keyword("RANGE")? {
+        return Ok(None);
+    }
+    
+    let unit = if lexer.is_keyword("ROWS")? {
+        lexer.expect_keyword("ROWS")?;
+        "ROWS".to_string()
+    } else {
+        lexer.expect_keyword("RANGE")?;
+        "RANGE".to_string()
+    };
+    
+    // Check for optional BETWEEN keyword
+    let _has_between = if lexer.is_keyword("BETWEEN")? {
+        lexer.expect_keyword("BETWEEN")?;
+        true
+    } else {
+        false
+    };
+    
+    // Parse frame start
+    let start = parse_frame_bound(lexer)?;
+    
+    // Check for AND (frame end)
+    let end = if lexer.is_keyword("AND")? {
+        lexer.expect_keyword("AND")?;
+        Some(parse_frame_bound(lexer)?)
+    } else {
+        None
+    };
+    
+    Ok(Some(WindowFrame { unit, start, end }))
+}
+
+fn parse_frame_bound(lexer: &mut Lexer) -> Result<String, FormatError> {
+    if lexer.is_keyword("UNBOUNDED")? {
+        lexer.expect_keyword("UNBOUNDED")?;
+        if lexer.is_keyword("PRECEDING")? {
+            lexer.expect_keyword("PRECEDING")?;
+            Ok("UNBOUNDED PRECEDING".to_string())
+        } else {
+            lexer.expect_keyword("FOLLOWING")?;
+            Ok("UNBOUNDED FOLLOWING".to_string())
+        }
+    } else if lexer.is_keyword("CURRENT")? {
+        lexer.expect_keyword("CURRENT")?;
+        lexer.expect_keyword("ROW")?;
+        Ok("CURRENT ROW".to_string())
+    } else {
+        // N PRECEDING or N FOLLOWING
+        let token = lexer.next()?;
+        let n = match token {
+            ParserToken::Number(num) => num,
+            _ => return Err(FormatError::new("Expected number in frame bound")),
+        };
+        
+        if lexer.is_keyword("PRECEDING")? {
+            lexer.expect_keyword("PRECEDING")?;
+            Ok(format!("{} PRECEDING", n))
+        } else {
+            lexer.expect_keyword("FOLLOWING")?;
+            Ok(format!("{} FOLLOWING", n))
+        }
+    }
 }
 
 // Helper function to collect leading comments
