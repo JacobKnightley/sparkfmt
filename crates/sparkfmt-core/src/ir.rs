@@ -5,14 +5,33 @@ pub enum Statement {
     SetOperation(SetOperation),
     // DDL
     CreateTable(CreateTableStmt),
+    CreateView(CreateViewStmt),
     DropTable(DropTableStmt),
+    DropView(DropViewStmt),
+    AlterTable(AlterTableStmt),
+    TruncateTable(TruncateTableStmt),
     Describe(DescribeStmt),
     ShowTables(ShowTablesStmt),
+    ShowDatabases(ShowDatabasesStmt),
+    ShowViews(ShowViewsStmt),
+    ShowColumns(ShowColumnsStmt),
     // DML
     InsertInto(InsertIntoStmt),
+    InsertOverwrite(InsertOverwriteStmt),
+    InsertValues(InsertValuesStmt),
+    Update(UpdateStmt),
     DeleteFrom(DeleteFromStmt),
+    Merge(MergeStmt),
+    // Utility
+    Explain(ExplainStmt),
+    Refresh(RefreshStmt),
+    CacheTable(CacheTableStmt),
+    UncacheTable(UncacheTableStmt),
+    ClearCache(ClearCacheStmt),
+    AnalyzeTable(AnalyzeTableStmt),
     // Session
     SetConfig(SetConfigStmt),
+    Reset(ResetStmt),
     UseDatabase(UseDatabaseStmt),
 }
 
@@ -241,4 +260,143 @@ pub enum OrderDirection {
 #[derive(Debug, Clone, PartialEq)]
 pub struct LimitClause {
     pub count: String,
+}
+
+/// CREATE VIEW statement
+#[derive(Debug, Clone, PartialEq)]
+pub struct CreateViewStmt {
+    pub or_replace: bool,
+    pub temporary: bool,
+    pub view_name: String,
+    pub query: Box<Statement>,
+    pub leading_comments: Vec<Comment>,
+}
+
+/// DROP VIEW statement
+#[derive(Debug, Clone, PartialEq)]
+pub struct DropViewStmt {
+    pub view_name: String,
+    pub if_exists: bool,
+    pub leading_comments: Vec<Comment>,
+}
+
+/// ALTER TABLE statement
+#[derive(Debug, Clone, PartialEq)]
+pub struct AlterTableStmt {
+    pub table_name: String,
+    pub action: String, // Simplified: store rest of statement as string
+    pub leading_comments: Vec<Comment>,
+}
+
+/// TRUNCATE TABLE statement
+#[derive(Debug, Clone, PartialEq)]
+pub struct TruncateTableStmt {
+    pub table_name: String,
+    pub leading_comments: Vec<Comment>,
+}
+
+/// SHOW DATABASES statement
+#[derive(Debug, Clone, PartialEq)]
+pub struct ShowDatabasesStmt {
+    pub leading_comments: Vec<Comment>,
+}
+
+/// SHOW VIEWS statement
+#[derive(Debug, Clone, PartialEq)]
+pub struct ShowViewsStmt {
+    pub in_database: Option<String>,
+    pub leading_comments: Vec<Comment>,
+}
+
+/// SHOW COLUMNS statement
+#[derive(Debug, Clone, PartialEq)]
+pub struct ShowColumnsStmt {
+    pub table_name: String,
+    pub leading_comments: Vec<Comment>,
+}
+
+/// INSERT OVERWRITE statement
+#[derive(Debug, Clone, PartialEq)]
+pub struct InsertOverwriteStmt {
+    pub table_name: String,
+    pub query: Box<Statement>,
+    pub leading_comments: Vec<Comment>,
+}
+
+/// INSERT VALUES statement
+#[derive(Debug, Clone, PartialEq)]
+pub struct InsertValuesStmt {
+    pub table_name: String,
+    pub values: Vec<Vec<String>>, // List of row values
+    pub leading_comments: Vec<Comment>,
+}
+
+/// UPDATE statement
+#[derive(Debug, Clone, PartialEq)]
+pub struct UpdateStmt {
+    pub table_name: String,
+    pub assignments: Vec<(String, String)>, // (column, value) pairs
+    pub where_clause: Option<WhereClause>,
+    pub leading_comments: Vec<Comment>,
+}
+
+/// MERGE statement
+#[derive(Debug, Clone, PartialEq)]
+pub struct MergeStmt {
+    pub target_table: String,
+    pub source_table: String,
+    pub on_condition: String,
+    pub when_matched: Option<String>,
+    pub when_not_matched: Option<String>,
+    pub leading_comments: Vec<Comment>,
+}
+
+/// EXPLAIN statement
+#[derive(Debug, Clone, PartialEq)]
+pub struct ExplainStmt {
+    pub mode: Option<String>, // EXTENDED, CODEGEN, COST, etc.
+    pub query: Box<Statement>,
+    pub leading_comments: Vec<Comment>,
+}
+
+/// REFRESH TABLE statement
+#[derive(Debug, Clone, PartialEq)]
+pub struct RefreshStmt {
+    pub table_name: String,
+    pub leading_comments: Vec<Comment>,
+}
+
+/// CACHE TABLE statement
+#[derive(Debug, Clone, PartialEq)]
+pub struct CacheTableStmt {
+    pub lazy: bool,
+    pub table_name: String,
+    pub query: Option<Box<Statement>>,
+    pub leading_comments: Vec<Comment>,
+}
+
+/// UNCACHE TABLE statement
+#[derive(Debug, Clone, PartialEq)]
+pub struct UncacheTableStmt {
+    pub table_name: String,
+    pub leading_comments: Vec<Comment>,
+}
+
+/// CLEAR CACHE statement
+#[derive(Debug, Clone, PartialEq)]
+pub struct ClearCacheStmt {
+    pub leading_comments: Vec<Comment>,
+}
+
+/// ANALYZE TABLE statement
+#[derive(Debug, Clone, PartialEq)]
+pub struct AnalyzeTableStmt {
+    pub table_name: String,
+    pub leading_comments: Vec<Comment>,
+}
+
+/// RESET statement
+#[derive(Debug, Clone, PartialEq)]
+pub struct ResetStmt {
+    pub leading_comments: Vec<Comment>,
 }

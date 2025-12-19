@@ -29,15 +29,8 @@ enum Token {
 struct CommentInfo {
     text: String,
     line: usize,
-    col: usize,
     is_line_comment: bool,
     is_hint: bool,
-}
-
-#[derive(Debug, Clone)]
-struct TokenInfo {
-    line: usize,
-    col: usize,
 }
 
 struct Lexer {
@@ -47,7 +40,6 @@ struct Lexer {
     col: usize,
     peeked: Option<Token>,
     comments: Vec<CommentInfo>,
-    last_token_info: Option<TokenInfo>,
 }
 
 impl Lexer {
@@ -59,7 +51,6 @@ impl Lexer {
             col: 1,
             peeked: None,
             comments: Vec::new(),
-            last_token_info: None,
         }
     }
 
@@ -94,7 +85,6 @@ impl Lexer {
                     self.comments.push(CommentInfo {
                         text: comment_text,
                         line: start_line,
-                        col: start_col,
                         is_line_comment: true,
                         is_hint: false,
                     });
@@ -106,7 +96,6 @@ impl Lexer {
                     self.comments.push(CommentInfo {
                         text: comment_text,
                         line: start_line,
-                        col: start_col,
                         is_line_comment: true,
                         is_hint: false,
                     });
@@ -122,7 +111,6 @@ impl Lexer {
                     self.comments.push(CommentInfo {
                         text: comment_text,
                         line: start_line,
-                        col: start_col,
                         is_line_comment: false,
                         is_hint: true,
                     });
@@ -132,7 +120,6 @@ impl Lexer {
                     self.comments.push(CommentInfo {
                         text: comment_text,
                         line: start_line,
-                        col: start_col,
                         is_line_comment: false,
                         is_hint: true,
                     });
@@ -148,7 +135,6 @@ impl Lexer {
                     self.comments.push(CommentInfo {
                         text: comment_text,
                         line: start_line,
-                        col: start_col,
                         is_line_comment: false,
                         is_hint: false,
                     });
@@ -158,7 +144,6 @@ impl Lexer {
                     self.comments.push(CommentInfo {
                         text: comment_text,
                         line: start_line,
-                        col: start_col,
                         is_line_comment: false,
                         is_hint: false,
                     });
@@ -211,7 +196,6 @@ impl Lexer {
         if let Some(m) = STRING_LITERAL.find(remaining) {
             let token = Token::StringLiteral(m.as_str().to_string());
             self.advance_by(m.end());
-            self.last_token_info = Some(TokenInfo { line: token_line, col: token_col });
             return Ok(token);
         }
         
@@ -219,7 +203,6 @@ impl Lexer {
         if let Some(m) = NUMBER.find(remaining) {
             let token = Token::Number(m.as_str().to_string());
             self.advance_by(m.end());
-            self.last_token_info = Some(TokenInfo { line: token_line, col: token_col });
             return Ok(token);
         }
         
@@ -227,7 +210,6 @@ impl Lexer {
         if let Some(m) = IDENTIFIER.find(remaining) {
             let text = m.as_str().to_string();
             self.advance_by(m.end());
-            self.last_token_info = Some(TokenInfo { line: token_line, col: token_col });
             return Ok(Token::Word(text)); // Preserve original casing
         }
         
@@ -235,7 +217,6 @@ impl Lexer {
         for symbol in &["<=", ">=", "<>", "!=", "||"] {
             if remaining.starts_with(symbol) {
                 self.advance_by(symbol.len());
-                self.last_token_info = Some(TokenInfo { line: token_line, col: token_col });
                 return Ok(Token::Symbol(symbol.to_string()));
             }
         }
@@ -244,7 +225,6 @@ impl Lexer {
         for symbol in &["(", ")", ",", ".", "*", "=", "<", ">", "!", "+", "-", "/", "|"] {
             if remaining.starts_with(symbol) {
                 self.advance_by(symbol.len());
-                self.last_token_info = Some(TokenInfo { line: token_line, col: token_col });
                 return Ok(Token::Symbol(symbol.to_string()));
             }
         }
