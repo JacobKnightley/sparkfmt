@@ -625,6 +625,14 @@ fn format_where_clause(where_clause: &WhereClause, output: &mut String, indent: 
         output.push_str(&" ".repeat(indent));
         output.push_str("WHERE ");
         format_expression(&where_clause.conditions[0].expr, output);
+        
+        // Format trailing inline comment
+        if let Some(ref comment) = where_clause.conditions[0].trailing_comment {
+            if matches!(comment.attachment, CommentAttachment::TrailingInline) {
+                output.push(' ');
+                output.push_str(&comment.text);
+            }
+        }
     } else {
         // Multiple conditions: each on its own line
         output.push_str(&" ".repeat(indent));
@@ -644,6 +652,14 @@ fn format_where_clause(where_clause: &WhereClause, output: &mut String, indent: 
             }
             
             format_expression(&condition.expr, output);
+            
+            // Format trailing inline comment
+            if let Some(ref comment) = condition.trailing_comment {
+                if matches!(comment.attachment, CommentAttachment::TrailingInline) {
+                    output.push(' ');
+                    output.push_str(&comment.text);
+                }
+            }
         }
     }
 }
@@ -654,6 +670,14 @@ fn format_having_clause(having: &HavingClause, output: &mut String, indent: usiz
         output.push_str(&" ".repeat(indent));
         output.push_str("HAVING ");
         format_expression(&having.conditions[0].expr, output);
+        
+        // Format trailing inline comment
+        if let Some(ref comment) = having.conditions[0].trailing_comment {
+            if matches!(comment.attachment, CommentAttachment::TrailingInline) {
+                output.push(' ');
+                output.push_str(&comment.text);
+            }
+        }
     } else {
         // Multiple conditions: each on its own line
         output.push_str(&" ".repeat(indent));
@@ -673,6 +697,14 @@ fn format_having_clause(having: &HavingClause, output: &mut String, indent: usiz
             }
             
             format_expression(&condition.expr, output);
+            
+            // Format trailing inline comment
+            if let Some(ref comment) = condition.trailing_comment {
+                if matches!(comment.attachment, CommentAttachment::TrailingInline) {
+                    output.push(' ');
+                    output.push_str(&comment.text);
+                }
+            }
         }
     }
 }

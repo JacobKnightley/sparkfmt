@@ -360,6 +360,7 @@ pub enum JoinType {
 pub struct Condition {
     pub expr: Expression,
     pub logical_op: Option<LogicalOp>,
+    pub trailing_comment: Option<Comment>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

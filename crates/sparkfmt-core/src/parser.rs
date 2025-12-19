@@ -30,6 +30,7 @@ pub enum ParserToken {
 struct CommentInfo {
     text: String,
     line: usize,
+    col: usize,
     is_line_comment: bool,
     is_hint: bool,
 }
@@ -86,6 +87,7 @@ impl Lexer {
                     self.comments.push(CommentInfo {
                         text: comment_text,
                         line: start_line,
+                        col: start_col,
                         is_line_comment: true,
                         is_hint: false,
                     });
@@ -97,6 +99,7 @@ impl Lexer {
                     self.comments.push(CommentInfo {
                         text: comment_text,
                         line: start_line,
+                        col: start_col,
                         is_line_comment: true,
                         is_hint: false,
                     });
@@ -112,6 +115,7 @@ impl Lexer {
                     self.comments.push(CommentInfo {
                         text: comment_text,
                         line: start_line,
+                        col: start_col,
                         is_line_comment: false,
                         is_hint: true,
                     });
@@ -121,6 +125,7 @@ impl Lexer {
                     self.comments.push(CommentInfo {
                         text: comment_text,
                         line: start_line,
+                        col: start_col,
                         is_line_comment: false,
                         is_hint: true,
                     });
@@ -136,6 +141,7 @@ impl Lexer {
                     self.comments.push(CommentInfo {
                         text: comment_text,
                         line: start_line,
+                        col: start_col,
                         is_line_comment: false,
                         is_hint: false,
                     });
@@ -145,6 +151,7 @@ impl Lexer {
                     self.comments.push(CommentInfo {
                         text: comment_text,
                         line: start_line,
+                        col: start_col,
                         is_line_comment: false,
                         is_hint: false,
                     });
@@ -1529,10 +1536,19 @@ fn parse_conditions(lexer: &mut Lexer) -> Result<Vec<Condition>, FormatError> {
     let mut conditions = Vec::new();
     
     // Parse first condition (no leading AND/OR)
+    // Peek to trigger skip_whitespace so we're at the right line
+    let _ = lexer.peek()?;
+    let start_line = lexer.line;
     let expr = parse_comparison_expression(lexer)?;
+    
+    // Check for trailing comment after first condition
+    let _token = lexer.peek()?;
+    let trailing_comment = extract_trailing_comment_for_line(lexer, start_line);
+    
     conditions.push(Condition {
         expr,
         logical_op: None,
+        trailing_comment,
     });
     
     // Parse remaining conditions with AND/OR
@@ -1548,10 +1564,19 @@ fn parse_conditions(lexer: &mut Lexer) -> Result<Vec<Condition>, FormatError> {
             break;
         };
         
+        // Peek to trigger skip_whitespace so we're at the right line
+        let _ = lexer.peek()?;
+        let start_line = lexer.line;
         let expr = parse_comparison_expression(lexer)?;
+        
+        // Check for trailing comment after this condition
+        let _token = lexer.peek()?;
+        let trailing_comment = extract_trailing_comment_for_line(lexer, start_line);
+        
         conditions.push(Condition {
             expr,
             logical_op,
+            trailing_comment,
         });
     }
     
