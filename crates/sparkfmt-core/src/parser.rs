@@ -231,7 +231,7 @@ impl Lexer {
         }
         
         // Try multi-char operators first (longest match first)
-        for symbol in &["<=", ">=", "<>", "!=", "||"] {
+        for symbol in &["<=", ">=", "<>", "!=", "||", "::"] {
             if remaining.starts_with(symbol) {
                 self.advance_by(symbol.len());
                 return Ok(ParserToken::Symbol(symbol.to_string()));
@@ -239,7 +239,7 @@ impl Lexer {
         }
         
         // Try single-char symbols
-        for symbol in &["(", ")", ",", ".", "*", "=", "<", ">", "!", "+", "-", "/", "|", "[", "]", "~"] {
+        for symbol in &["(", ")", ",", ".", "*", "=", "<", ">", "!", "+", "-", "/", "|", "[", "]", "~", ":"] {
             if remaining.starts_with(symbol) {
                 self.advance_by(symbol.len());
                 return Ok(ParserToken::Symbol(symbol.to_string()));
@@ -260,6 +260,11 @@ impl Lexer {
     fn is_keyword(&mut self, keyword: &str) -> Result<bool, FormatError> {
         let token = self.peek()?;
         Ok(matches!(token, ParserToken::Word(w) if w.to_uppercase() == keyword.to_uppercase()))
+    }
+    
+    fn is_symbol(&mut self, symbol: &str) -> Result<bool, FormatError> {
+        let token = self.peek()?;
+        Ok(matches!(token, ParserToken::Symbol(s) if s == symbol))
     }
     
     fn parse_identifier(&mut self) -> Result<String, FormatError> {
@@ -638,14 +643,28 @@ fn parse_comparison_expression(lexer: &mut Lexer) -> Result<Expression, FormatEr
     // Check for special operators
     if lexer.is_keyword("IS")? {
         lexer.expect_keyword("IS")?;
-        let not_null = if lexer.is_keyword("NOT")? {
+        let not_distinct = if lexer.is_keyword("NOT")? {
             lexer.expect_keyword("NOT")?;
             true
         } else {
             false
         };
+        
+        // Check for DISTINCT FROM
+        if lexer.is_keyword("DISTINCT")? {
+            lexer.expect_keyword("DISTINCT")?;
+            lexer.expect_keyword("FROM")?;
+            let right = parse_additive_expression(lexer)?;
+            return Ok(Expression::BinaryOp {
+                left: Box::new(left),
+                op: if not_distinct { "IS NOT DISTINCT FROM".to_string() } else { "IS DISTINCT FROM".to_string() },
+                right: Box::new(right),
+            });
+        }
+        
+        // Otherwise it must be NULL
         lexer.expect_keyword("NULL")?;
-        return Ok(Expression::IsNull { expr: Box::new(left), negated: not_null });
+        return Ok(Expression::IsNull { expr: Box::new(left), negated: not_distinct });
     }
     
     if lexer.is_keyword("BETWEEN")? {
@@ -822,6 +841,16 @@ fn parse_postfix_expression(lexer: &mut Lexer) -> Result<Expression, FormatError
                     index: Box::new(index),
                 };
             }
+            ParserToken::Symbol(s) if s == "::" => {
+                // PostgreSQL-style cast: expr::type
+                lexer.next()?;
+                let data_type = parse_identifier(lexer)?;
+                expr = Expression::Cast {
+                    expr: Box::new(expr),
+                    data_type,
+                    pg_style: true,
+                };
+            }
             ParserToken::Word(w) if w.eq_ignore_ascii_case("OVER") => {
                 lexer.expect_keyword("OVER")?;
                 lexer.expect_symbol("(")?;
@@ -933,6 +962,61 @@ fn parse_primary_expression(lexer: &mut Lexer) -> Result<Expression, FormatError
                 return Ok(Expression::Exists { subquery: Box::new(subquery), negated: false });
             }
             
+            // Check for typed literals (DATE, TIMESTAMP, INTERVAL)
+            if lexer.is_keyword("DATE")? {
+                let type_name = lexer.parse_identifier()?;
+                let token = lexer.peek()?;
+                if matches!(token, ParserToken::StringLiteral(_)) {
+                    let value = match lexer.next()? {
+                        ParserToken::StringLiteral(s) => s,
+                        _ => unreachable!(),
+                    };
+                    return Ok(Expression::TypedLiteral { type_name, value });
+                }
+                // If not followed by string literal, treat as identifier
+                return Ok(Expression::Identifier(type_name));
+            }
+            
+            if lexer.is_keyword("TIMESTAMP")? {
+                let type_name = lexer.parse_identifier()?;
+                let token = lexer.peek()?;
+                if matches!(token, ParserToken::StringLiteral(_)) {
+                    let value = match lexer.next()? {
+                        ParserToken::StringLiteral(s) => s,
+                        _ => unreachable!(),
+                    };
+                    return Ok(Expression::TypedLiteral { type_name, value });
+                }
+                // If not followed by string literal, treat as identifier
+                return Ok(Expression::Identifier(type_name));
+            }
+            
+            if lexer.is_keyword("INTERVAL")? {
+                let type_name = lexer.parse_identifier()?;
+                // INTERVAL has a different format: INTERVAL 1 DAY
+                // Parse the numeric value
+                let token = lexer.peek()?;
+                let value = match token {
+                    ParserToken::Number(ref n) => {
+                        let num = n.clone();
+                        lexer.next()?;
+                        // Parse the unit (DAY, MONTH, YEAR, etc.)
+                        let unit = lexer.parse_identifier()?;
+                        format!("{} {}", num, unit)
+                    }
+                    ParserToken::StringLiteral(ref s) => {
+                        let str_val = s.clone();
+                        lexer.next()?;
+                        str_val
+                    }
+                    _ => {
+                        // Invalid INTERVAL syntax, treat as identifier
+                        return Ok(Expression::Identifier(type_name));
+                    }
+                };
+                return Ok(Expression::TypedLiteral { type_name, value });
+            }
+            
             let name = lexer.parse_identifier()?;
             
             // Check for function call or qualified identifier
@@ -1024,7 +1108,7 @@ fn parse_cast_expression(lexer: &mut Lexer) -> Result<Expression, FormatError> {
     let data_type = parse_data_type(lexer)?;
     lexer.expect_symbol(")")?;
     
-    Ok(Expression::Cast { expr: Box::new(expr), data_type })
+    Ok(Expression::Cast { expr: Box::new(expr), data_type, pg_style: false })
 }
 
 fn parse_data_type(lexer: &mut Lexer) -> Result<String, FormatError> {
@@ -1097,28 +1181,56 @@ fn parse_from_clause(lexer: &mut Lexer) -> Result<FromClause, FormatError> {
 
 fn is_join_keyword(lexer: &mut Lexer) -> Result<bool, FormatError> {
     let token = lexer.peek()?;
-    Ok(matches!(token, ParserToken::Word(w) if matches!(w.to_uppercase().as_str(), "INNER" | "LEFT" | "RIGHT" | "FULL" | "CROSS" | "JOIN")))
+    Ok(matches!(token, ParserToken::Word(w) if matches!(w.to_uppercase().as_str(), "NATURAL" | "INNER" | "LEFT" | "RIGHT" | "FULL" | "CROSS" | "JOIN")))
 }
 
 fn parse_join(lexer: &mut Lexer) -> Result<Join, FormatError> {
+    // Check for NATURAL modifier first
+    let natural = if lexer.is_keyword("NATURAL")? {
+        lexer.expect_keyword("NATURAL")?;
+        true
+    } else {
+        false
+    };
+    
     let join_type = if lexer.is_keyword("INNER")? {
         lexer.expect_keyword("INNER")?;
         lexer.expect_keyword("JOIN")?;
         JoinType::Inner
     } else if lexer.is_keyword("LEFT")? {
         lexer.expect_keyword("LEFT")?;
-        if lexer.is_keyword("OUTER")? {
-            lexer.expect_keyword("OUTER")?;
+        if lexer.is_keyword("SEMI")? {
+            lexer.expect_keyword("SEMI")?;
+            lexer.expect_keyword("JOIN")?;
+            JoinType::LeftSemi
+        } else if lexer.is_keyword("ANTI")? {
+            lexer.expect_keyword("ANTI")?;
+            lexer.expect_keyword("JOIN")?;
+            JoinType::LeftAnti
+        } else {
+            if lexer.is_keyword("OUTER")? {
+                lexer.expect_keyword("OUTER")?;
+            }
+            lexer.expect_keyword("JOIN")?;
+            JoinType::Left
         }
-        lexer.expect_keyword("JOIN")?;
-        JoinType::Left
     } else if lexer.is_keyword("RIGHT")? {
         lexer.expect_keyword("RIGHT")?;
-        if lexer.is_keyword("OUTER")? {
-            lexer.expect_keyword("OUTER")?;
+        if lexer.is_keyword("SEMI")? {
+            lexer.expect_keyword("SEMI")?;
+            lexer.expect_keyword("JOIN")?;
+            JoinType::RightSemi
+        } else if lexer.is_keyword("ANTI")? {
+            lexer.expect_keyword("ANTI")?;
+            lexer.expect_keyword("JOIN")?;
+            JoinType::RightAnti
+        } else {
+            if lexer.is_keyword("OUTER")? {
+                lexer.expect_keyword("OUTER")?;
+            }
+            lexer.expect_keyword("JOIN")?;
+            JoinType::Right
         }
-        lexer.expect_keyword("JOIN")?;
-        JoinType::Right
     } else if lexer.is_keyword("FULL")? {
         lexer.expect_keyword("FULL")?;
         if lexer.is_keyword("OUTER")? {
@@ -1138,21 +1250,49 @@ fn parse_join(lexer: &mut Lexer) -> Result<Join, FormatError> {
     let table = parse_table_ref(lexer)?;
     
     let mut on_conditions = Vec::new();
+    let mut using_columns = Vec::new();
     
     if lexer.is_keyword("ON")? {
         lexer.expect_keyword("ON")?;
         on_conditions = parse_conditions(lexer)?;
+    } else if lexer.is_keyword("USING")? {
+        lexer.expect_keyword("USING")?;
+        lexer.expect_symbol("(")?;
+        
+        // Parse column list
+        loop {
+            using_columns.push(parse_identifier(lexer)?);
+            
+            if lexer.is_symbol(",")? {
+                lexer.expect_symbol(",")?;
+            } else {
+                break;
+            }
+        }
+        
+        lexer.expect_symbol(")")?;
     }
     
     Ok(Join {
         join_type,
+        natural,
         table,
         on_conditions,
+        using_columns,
     })
 }
 
 fn parse_table_ref(lexer: &mut Lexer) -> Result<TableRef, FormatError> {
-    let name = parse_identifier(lexer)?;
+    // Check if it's a subquery
+    let source = if lexer.is_symbol("(")? {
+        lexer.expect_symbol("(")?;
+        let subquery = parse_statement(lexer)?;
+        lexer.expect_symbol(")")?;
+        TableSource::Subquery(Box::new(subquery))
+    } else {
+        let name = parse_identifier(lexer)?;
+        TableSource::Table(name)
+    };
     
     let alias = if lexer.is_keyword("AS")? {
         lexer.expect_keyword("AS")?;
@@ -1164,6 +1304,11 @@ fn parse_table_ref(lexer: &mut Lexer) -> Result<TableRef, FormatError> {
             ParserToken::Word(_) => {
                 // Make sure it's not a keyword
                 if !is_join_keyword(lexer)? && !lexer.is_keyword("ON")? && 
+                   !lexer.is_keyword("USING")? &&
+                   !lexer.is_keyword("LATERAL")? &&
+                   !lexer.is_keyword("PIVOT")? &&
+                   !lexer.is_keyword("UNPIVOT")? &&
+                   !lexer.is_keyword("TABLESAMPLE")? &&
                    !lexer.is_keyword("WHERE")? && 
                    !lexer.is_keyword("GROUP")? && !lexer.is_keyword("HAVING")? &&
                    !lexer.is_keyword("ORDER")? && !lexer.is_keyword("LIMIT")? &&
@@ -1177,7 +1322,195 @@ fn parse_table_ref(lexer: &mut Lexer) -> Result<TableRef, FormatError> {
         }
     };
     
-    Ok(TableRef { name, alias })
+    // Parse LATERAL VIEWs
+    let mut lateral_views = Vec::new();
+    while lexer.is_keyword("LATERAL")? {
+        lateral_views.push(parse_lateral_view(lexer)?);
+    }
+    
+    // Parse PIVOT/UNPIVOT
+    let pivot = if lexer.is_keyword("PIVOT")? {
+        Some(parse_pivot(lexer)?)
+    } else {
+        None
+    };
+    
+    let unpivot = if lexer.is_keyword("UNPIVOT")? {
+        Some(parse_unpivot(lexer)?)
+    } else {
+        None
+    };
+    
+    // Parse TABLESAMPLE
+    let tablesample = if lexer.is_keyword("TABLESAMPLE")? {
+        Some(parse_tablesample(lexer)?)
+    } else {
+        None
+    };
+    
+    Ok(TableRef { 
+        source,
+        alias,
+        lateral_views,
+        pivot,
+        unpivot,
+        tablesample,
+    })
+}
+
+fn parse_lateral_view(lexer: &mut Lexer) -> Result<LateralView, FormatError> {
+    lexer.expect_keyword("LATERAL")?;
+    lexer.expect_keyword("VIEW")?;
+    
+    let outer = if lexer.is_keyword("OUTER")? {
+        lexer.expect_keyword("OUTER")?;
+        true
+    } else {
+        false
+    };
+    
+    // Parse the function call (e.g., EXPLODE(arr))
+    let function = parse_expression(lexer)?;
+    
+    // Parse table alias
+    let table_alias = parse_identifier(lexer)?;
+    
+    // Parse column aliases (optional AS keyword)
+    if lexer.is_keyword("AS")? {
+        lexer.expect_keyword("AS")?;
+    }
+    
+    let mut column_aliases = Vec::new();
+    // First column alias
+    column_aliases.push(parse_identifier(lexer)?);
+    
+    // Additional column aliases (comma-separated)
+    while lexer.is_symbol(",")? {
+        lexer.expect_symbol(",")?;
+        column_aliases.push(parse_identifier(lexer)?);
+    }
+    
+    Ok(LateralView {
+        outer,
+        function,
+        table_alias,
+        column_aliases,
+    })
+}
+
+fn parse_pivot(lexer: &mut Lexer) -> Result<PivotClause, FormatError> {
+    lexer.expect_keyword("PIVOT")?;
+    lexer.expect_symbol("(")?;
+    
+    // Parse aggregate expression (e.g., SUM(val))
+    let aggregate = parse_expression(lexer)?;
+    
+    lexer.expect_keyword("FOR")?;
+    
+    // Parse pivot column
+    let pivot_column = parse_identifier(lexer)?;
+    
+    lexer.expect_keyword("IN")?;
+    lexer.expect_symbol("(")?;
+    
+    // Parse pivot values
+    let mut pivot_values = Vec::new();
+    loop {
+        pivot_values.push(parse_expression(lexer)?);
+        
+        if lexer.is_symbol(",")? {
+            lexer.expect_symbol(",")?;
+        } else {
+            break;
+        }
+    }
+    
+    lexer.expect_symbol(")")?;
+    lexer.expect_symbol(")")?;
+    
+    Ok(PivotClause {
+        aggregate,
+        pivot_column,
+        pivot_values,
+    })
+}
+
+fn parse_unpivot(lexer: &mut Lexer) -> Result<UnpivotClause, FormatError> {
+    lexer.expect_keyword("UNPIVOT")?;
+    lexer.expect_symbol("(")?;
+    
+    // Parse value column
+    let value_column = parse_identifier(lexer)?;
+    
+    lexer.expect_keyword("FOR")?;
+    
+    // Parse name column
+    let name_column = parse_identifier(lexer)?;
+    
+    lexer.expect_keyword("IN")?;
+    lexer.expect_symbol("(")?;
+    
+    // Parse unpivot columns
+    let mut unpivot_columns = Vec::new();
+    loop {
+        unpivot_columns.push(parse_identifier(lexer)?);
+        
+        if lexer.is_symbol(",")? {
+            lexer.expect_symbol(",")?;
+        } else {
+            break;
+        }
+    }
+    
+    lexer.expect_symbol(")")?;
+    lexer.expect_symbol(")")?;
+    
+    Ok(UnpivotClause {
+        value_column,
+        name_column,
+        unpivot_columns,
+    })
+}
+
+fn parse_tablesample(lexer: &mut Lexer) -> Result<TableSample, FormatError> {
+    lexer.expect_keyword("TABLESAMPLE")?;
+    lexer.expect_symbol("(")?;
+    
+    // Parse the sample specification
+    // This could be "10 PERCENT", "100 ROWS", or "BUCKET 3 OUT OF 10"
+    let token = lexer.peek()?;
+    
+    let method = if lexer.is_keyword("BUCKET")? {
+        lexer.expect_keyword("BUCKET")?;
+        let bucket_num = parse_identifier(lexer)?;
+        lexer.expect_keyword("OUT")?;
+        lexer.expect_keyword("OF")?;
+        let total_buckets = parse_identifier(lexer)?;
+        TableSampleMethod::Bucket(bucket_num, total_buckets)
+    } else {
+        // Parse number
+        let num = match lexer.next()? {
+            ParserToken::Number(n) => n,
+            ParserToken::Word(w) => w,
+            other => return Err(FormatError::new(format!("Expected number in TABLESAMPLE, got {:?}", other))),
+        };
+        
+        // Check for PERCENT or ROWS
+        if lexer.is_keyword("PERCENT")? {
+            lexer.expect_keyword("PERCENT")?;
+            TableSampleMethod::Percent(num)
+        } else if lexer.is_keyword("ROWS")? {
+            lexer.expect_keyword("ROWS")?;
+            TableSampleMethod::Rows(num)
+        } else {
+            // Default to ROWS if not specified
+            TableSampleMethod::Rows(num)
+        }
+    };
+    
+    lexer.expect_symbol(")")?;
+    
+    Ok(TableSample { method })
 }
 
 fn parse_where_clause(lexer: &mut Lexer) -> Result<WhereClause, FormatError> {
@@ -1232,7 +1565,77 @@ fn parse_group_by_clause(lexer: &mut Lexer) -> Result<GroupByClause, FormatError
     let mut items = Vec::new();
     
     loop {
-        items.push(parse_expression(lexer)?);
+        // Check for GROUPING SETS
+        if lexer.is_keyword("GROUPING")? {
+            let saved_pos = lexer.pos;
+            lexer.expect_keyword("GROUPING")?;
+            if lexer.is_keyword("SETS")? {
+                lexer.expect_keyword("SETS")?;
+                // Parse the grouping sets as a single expression
+                // GROUPING SETS ((a), (b), ())
+                // We'll create a function call expression with "GROUPING SETS" as the name
+                lexer.expect_symbol("(")?;
+                
+                // Parse the list of grouping sets
+                let mut args = Vec::new();
+                loop {
+                    // Each grouping set is either empty () or a parenthesized list
+                    lexer.expect_symbol("(")?;
+                    
+                    // Check for empty grouping set
+                    if lexer.is_symbol(")")? {
+                        lexer.expect_symbol(")")?;
+                        // Use empty literal as placeholder for empty grouping set
+                        args.push(Expression::Parenthesized(Box::new(Expression::Literal("".to_string()))));
+                    } else {
+                        // Parse expressions in the grouping set
+                        let mut set_items = Vec::new();
+                        loop {
+                            set_items.push(parse_expression(lexer)?);
+                            if lexer.is_symbol(",")? {
+                                lexer.expect_symbol(",")?;
+                            } else {
+                                break;
+                            }
+                        }
+                        lexer.expect_symbol(")")?;
+                        
+                        // Create a representation for the grouping set
+                        if set_items.len() == 1 {
+                            args.push(Expression::Parenthesized(Box::new(set_items.into_iter().next().unwrap())));
+                        } else {
+                            // Multiple items - create a FunctionCall with empty name to represent the tuple
+                            // This is a bit of a hack but works for formatting purposes
+                            let tuple_expr = Expression::FunctionCall {
+                                name: "".to_string(), // Empty name means it's just a comma-separated list
+                                args: set_items,
+                            };
+                            args.push(Expression::Parenthesized(Box::new(tuple_expr)));
+                        }
+                    }
+                    
+                    if lexer.is_symbol(",")? {
+                        lexer.expect_symbol(",")?;
+                    } else {
+                        break;
+                    }
+                }
+                
+                lexer.expect_symbol(")")?;
+                
+                // Create a function call expression for GROUPING SETS
+                items.push(Expression::FunctionCall {
+                    name: "GROUPING SETS".to_string(),
+                    args,
+                });
+            } else {
+                // Not GROUPING SETS, rewind and parse as normal expression
+                lexer.pos = saved_pos;
+                items.push(parse_expression(lexer)?);
+            }
+        } else {
+            items.push(parse_expression(lexer)?);
+        }
         
         let token = lexer.peek()?;
         if matches!(token, ParserToken::Symbol(s) if s == ",") {

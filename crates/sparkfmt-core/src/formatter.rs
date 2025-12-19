@@ -204,26 +204,43 @@ fn format_expression(expr: &Expression, output: &mut String) {
             output.push_str(".*");
         }
         Expression::FunctionCall { name, args } => {
-            // Built-in functions are UPPERCASE, user-defined functions preserve casing
-            let formatted_name = if functions::is_builtin_function(name) {
-                name.to_uppercase()
-            } else {
-                name.clone()
-            };
-            output.push_str(&formatted_name);
-            output.push('(');
-            for (i, arg) in args.iter().enumerate() {
-                if i > 0 {
-                    output.push(',');
+            // Empty name means it's just a comma-separated list (used in GROUPING SETS)
+            if name.is_empty() {
+                for (i, arg) in args.iter().enumerate() {
+                    if i > 0 {
+                        output.push(',');
+                    }
+                    format_expression(arg, output);
                 }
-                format_expression(arg, output);
+            } else {
+                // Built-in functions are UPPERCASE, user-defined functions preserve casing
+                let formatted_name = if functions::is_builtin_function(name) {
+                    name.to_uppercase()
+                } else {
+                    name.clone()
+                };
+                output.push_str(&formatted_name);
+                output.push('(');
+                for (i, arg) in args.iter().enumerate() {
+                    if i > 0 {
+                        output.push(',');
+                    }
+                    format_expression(arg, output);
+                }
+                output.push(')');
             }
-            output.push(')');
         }
         Expression::BinaryOp { left, op, right } => {
             format_expression(left, output);
-            // Don't add spaces around operators - keep them compact
-            output.push_str(op);
+            // Add spaces around multi-word operators like IS DISTINCT FROM
+            if op.contains(" ") {
+                output.push(' ');
+                output.push_str(op);
+                output.push(' ');
+            } else {
+                // Don't add spaces around regular operators - keep them compact
+                output.push_str(op);
+            }
             format_expression(right, output);
         }
         Expression::UnaryOp { op, expr } => {
@@ -234,6 +251,25 @@ fn format_expression(expr: &Expression, output: &mut String) {
             format_expression(expr, output);
         }
         Expression::Literal(lit) => output.push_str(lit),
+        Expression::TypedLiteral { type_name, value } => {
+            // Format as TYPE 'value' or TYPE value unit (for INTERVAL)
+            output.push_str(&type_name.to_uppercase());
+            output.push(' ');
+            // For INTERVAL, uppercase the unit as well
+            if type_name.eq_ignore_ascii_case("INTERVAL") && !value.starts_with('\'') {
+                // Parse number and unit separately
+                let parts: Vec<&str> = value.split_whitespace().collect();
+                if parts.len() >= 2 {
+                    output.push_str(parts[0]); // number
+                    output.push(' ');
+                    output.push_str(&parts[1..].join(" ").to_uppercase()); // unit(s)
+                } else {
+                    output.push_str(value);
+                }
+            } else {
+                output.push_str(value);
+            }
+        }
         Expression::Parenthesized(expr) => {
             output.push('(');
             format_expression(expr, output);
@@ -257,12 +293,18 @@ fn format_expression(expr: &Expression, output: &mut String) {
             }
             output.push_str(" END");
         }
-        Expression::Cast { expr, data_type } => {
-            output.push_str("CAST(");
-            format_expression(expr, output);
-            output.push_str(" AS ");
-            output.push_str(data_type);
-            output.push(')');
+        Expression::Cast { expr, data_type, pg_style } => {
+            if *pg_style {
+                format_expression(expr, output);
+                output.push_str("::");
+                output.push_str(&data_type.to_uppercase());
+            } else {
+                output.push_str("CAST(");
+                format_expression(expr, output);
+                output.push_str(" AS ");
+                output.push_str(&data_type.to_uppercase());
+                output.push(')');
+            }
         }
         Expression::WindowFunction { function, partition_by, order_by, frame } => {
             format_expression(function, output);
@@ -405,13 +447,7 @@ fn format_expression(expr: &Expression, output: &mut String) {
 
 fn format_from_clause(from: &FromClause, output: &mut String, indent: usize) {
     output.push_str("FROM ");
-    output.push_str(&from.table.name);
-    
-    // Table aliases never use AS
-    if let Some(ref alias) = from.table.alias {
-        output.push(' ');
-        output.push_str(alias);
-    }
+    format_table_ref(&from.table, output, indent);
     
     // Format joins
     for join in &from.joins {
@@ -420,22 +456,143 @@ fn format_from_clause(from: &FromClause, output: &mut String, indent: usize) {
     }
 }
 
+fn format_table_ref(table_ref: &TableRef, output: &mut String, indent: usize) {
+    // Format the table source (table name or subquery)
+    match &table_ref.source {
+        TableSource::Table(name) => output.push_str(name),
+        TableSource::Subquery(stmt) => {
+            output.push_str("(\n");
+            let nested_indent = indent + BASE_INDENT;
+            output.push_str(&" ".repeat(nested_indent));
+            format_statement(stmt, output, nested_indent);
+            output.push('\n');
+            output.push_str(&" ".repeat(indent));
+            output.push(')');
+        }
+    }
+    
+    // Table aliases never use AS
+    if let Some(ref alias) = table_ref.alias {
+        output.push(' ');
+        output.push_str(alias);
+    }
+    
+    // Format TABLESAMPLE
+    if let Some(ref sample) = table_ref.tablesample {
+        output.push_str(" TABLESAMPLE (");
+        match &sample.method {
+            TableSampleMethod::Percent(p) => {
+                output.push_str(p);
+                output.push_str(" PERCENT");
+            }
+            TableSampleMethod::Rows(r) => {
+                output.push_str(r);
+                output.push_str(" ROWS");
+            }
+            TableSampleMethod::Bucket(b, t) => {
+                output.push_str("BUCKET ");
+                output.push_str(b);
+                output.push_str(" OUT OF ");
+                output.push_str(t);
+            }
+        }
+        output.push(')');
+    }
+    
+    // Format LATERAL VIEWs
+    for lateral in &table_ref.lateral_views {
+        output.push('\n');
+        output.push_str("LATERAL VIEW ");
+        if lateral.outer {
+            output.push_str("OUTER ");
+        }
+        format_expression(&lateral.function, output);
+        output.push(' ');
+        output.push_str(&lateral.table_alias);
+        output.push_str(" AS ");
+        for (i, col) in lateral.column_aliases.iter().enumerate() {
+            if i > 0 {
+                output.push(',');
+            }
+            output.push_str(col);
+        }
+    }
+    
+    // Format PIVOT
+    if let Some(ref pivot) = table_ref.pivot {
+        output.push('\n');
+        output.push_str("PIVOT (");
+        format_expression(&pivot.aggregate, output);
+        output.push_str(" FOR ");
+        output.push_str(&pivot.pivot_column);
+        output.push_str(" IN (");
+        for (i, val) in pivot.pivot_values.iter().enumerate() {
+            if i > 0 {
+                output.push(',');
+            }
+            format_expression(val, output);
+        }
+        output.push_str("))");
+    }
+    
+    // Format UNPIVOT
+    if let Some(ref unpivot) = table_ref.unpivot {
+        output.push('\n');
+        output.push_str("UNPIVOT (");
+        output.push_str(&unpivot.value_column);
+        output.push_str(" FOR ");
+        output.push_str(&unpivot.name_column);
+        output.push_str(" IN (");
+        for (i, col) in unpivot.unpivot_columns.iter().enumerate() {
+            if i > 0 {
+                output.push(',');
+            }
+            output.push_str(col);
+        }
+        output.push_str("))");
+    }
+}
+
 fn format_join(join: &Join, output: &mut String, _indent: usize) {
     // JOIN keywords start at column 0
+    if join.natural {
+        output.push_str("NATURAL ");
+    }
+    
     match join.join_type {
-        JoinType::Inner => output.push_str("INNER JOIN "),
+        JoinType::Inner => {
+            // Only output INNER if it's not natural, otherwise just JOIN
+            if !join.natural {
+                output.push_str("INNER JOIN ");
+            } else {
+                output.push_str("JOIN ");
+            }
+        },
         JoinType::Left => output.push_str("LEFT JOIN "),
+        JoinType::LeftSemi => output.push_str("LEFT SEMI JOIN "),
+        JoinType::LeftAnti => output.push_str("LEFT ANTI JOIN "),
         JoinType::Right => output.push_str("RIGHT JOIN "),
+        JoinType::RightSemi => output.push_str("RIGHT SEMI JOIN "),
+        JoinType::RightAnti => output.push_str("RIGHT ANTI JOIN "),
         JoinType::Full => output.push_str("FULL JOIN "),
         JoinType::Cross => output.push_str("CROSS JOIN "),
     }
     
-    output.push_str(&join.table.name);
+    // Format the table reference (could be table or subquery)
+    format_table_ref(&join.table, output, _indent);
     
-    // Table aliases never use AS
-    if let Some(ref alias) = join.table.alias {
-        output.push(' ');
-        output.push_str(alias);
+    // Format USING clause
+    if !join.using_columns.is_empty() {
+        output.push('\n');
+        output.push_str(&" ".repeat(BASE_INDENT));
+        output.push_str("USING (");
+        for (i, col) in join.using_columns.iter().enumerate() {
+            if i > 0 {
+                output.push(',');
+            }
+            output.push_str(col);
+        }
+        output.push(')');
     }
     
     // Format ON conditions
