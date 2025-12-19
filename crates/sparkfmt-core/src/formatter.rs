@@ -222,8 +222,15 @@ fn format_expression(expr: &Expression, output: &mut String) {
         }
         Expression::BinaryOp { left, op, right } => {
             format_expression(left, output);
-            // Don't add spaces around operators - keep them compact
-            output.push_str(op);
+            // Add spaces around multi-word operators like IS DISTINCT FROM
+            if op.contains(" ") {
+                output.push(' ');
+                output.push_str(op);
+                output.push(' ');
+            } else {
+                // Don't add spaces around regular operators - keep them compact
+                output.push_str(op);
+            }
             format_expression(right, output);
         }
         Expression::UnaryOp { op, expr } => {

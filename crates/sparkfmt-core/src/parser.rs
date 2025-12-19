@@ -643,14 +643,28 @@ fn parse_comparison_expression(lexer: &mut Lexer) -> Result<Expression, FormatEr
     // Check for special operators
     if lexer.is_keyword("IS")? {
         lexer.expect_keyword("IS")?;
-        let not_null = if lexer.is_keyword("NOT")? {
+        let not_distinct = if lexer.is_keyword("NOT")? {
             lexer.expect_keyword("NOT")?;
             true
         } else {
             false
         };
+        
+        // Check for DISTINCT FROM
+        if lexer.is_keyword("DISTINCT")? {
+            lexer.expect_keyword("DISTINCT")?;
+            lexer.expect_keyword("FROM")?;
+            let right = parse_additive_expression(lexer)?;
+            return Ok(Expression::BinaryOp {
+                left: Box::new(left),
+                op: if not_distinct { "IS NOT DISTINCT FROM".to_string() } else { "IS DISTINCT FROM".to_string() },
+                right: Box::new(right),
+            });
+        }
+        
+        // Otherwise it must be NULL
         lexer.expect_keyword("NULL")?;
-        return Ok(Expression::IsNull { expr: Box::new(left), negated: not_null });
+        return Ok(Expression::IsNull { expr: Box::new(left), negated: not_distinct });
     }
     
     if lexer.is_keyword("BETWEEN")? {
@@ -1551,7 +1565,72 @@ fn parse_group_by_clause(lexer: &mut Lexer) -> Result<GroupByClause, FormatError
     let mut items = Vec::new();
     
     loop {
-        items.push(parse_expression(lexer)?);
+        // Check for GROUPING SETS
+        if lexer.is_keyword("GROUPING")? {
+            let saved_pos = lexer.pos;
+            lexer.expect_keyword("GROUPING")?;
+            if lexer.is_keyword("SETS")? {
+                lexer.expect_keyword("SETS")?;
+                // Parse the grouping sets as a single expression
+                // GROUPING SETS ((a), (b), ())
+                // We'll create a function call expression with "GROUPING SETS" as the name
+                lexer.expect_symbol("(")?;
+                
+                // Parse the list of grouping sets
+                let mut args = Vec::new();
+                loop {
+                    // Each grouping set is either empty () or a parenthesized list
+                    lexer.expect_symbol("(")?;
+                    
+                    // Check for empty grouping set
+                    if lexer.is_symbol(")")? {
+                        lexer.expect_symbol(")")?;
+                        // Use empty literal as placeholder for empty grouping set
+                        args.push(Expression::Parenthesized(Box::new(Expression::Literal("".to_string()))));
+                    } else {
+                        // Parse expressions in the grouping set
+                        let mut set_items = Vec::new();
+                        loop {
+                            set_items.push(parse_expression(lexer)?);
+                            if lexer.is_symbol(",")? {
+                                lexer.expect_symbol(",")?;
+                            } else {
+                                break;
+                            }
+                        }
+                        lexer.expect_symbol(")")?;
+                        
+                        // For now, combine the set_items into a single parenthesized expression
+                        if set_items.len() == 1 {
+                            args.push(Expression::Parenthesized(Box::new(set_items.into_iter().next().unwrap())));
+                        } else {
+                            // Multiple items - create a raw token representation
+                            args.push(Expression::Parenthesized(Box::new(set_items.into_iter().next().unwrap())));
+                        }
+                    }
+                    
+                    if lexer.is_symbol(",")? {
+                        lexer.expect_symbol(",")?;
+                    } else {
+                        break;
+                    }
+                }
+                
+                lexer.expect_symbol(")")?;
+                
+                // Create a function call expression for GROUPING SETS
+                items.push(Expression::FunctionCall {
+                    name: "GROUPING SETS".to_string(),
+                    args,
+                });
+            } else {
+                // Not GROUPING SETS, rewind and parse as normal expression
+                lexer.pos = saved_pos;
+                items.push(parse_expression(lexer)?);
+            }
+        } else {
+            items.push(parse_expression(lexer)?);
+        }
         
         let token = lexer.peek()?;
         if matches!(token, ParserToken::Symbol(s) if s == ",") {

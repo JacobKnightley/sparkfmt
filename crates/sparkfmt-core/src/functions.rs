@@ -38,6 +38,8 @@ lazy_static! {
         set.insert("SKEWNESS");
         set.insert("GROUPING");
         set.insert("GROUPING_ID");
+        set.insert("ROLLUP");
+        set.insert("CUBE");
         
         // String functions
         set.insert("CONCAT");
