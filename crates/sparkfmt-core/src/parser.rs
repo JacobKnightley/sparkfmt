@@ -6,7 +6,7 @@ use lazy_static::lazy_static;
 lazy_static! {
     static ref WHITESPACE: Regex = Regex::new(r"^\s+").unwrap();
     static ref IDENTIFIER: Regex = Regex::new(r"^[a-zA-Z_][a-zA-Z0-9_]*").unwrap();
-    static ref NUMBER: Regex = Regex::new(r"^[0-9]+").unwrap();
+    static ref NUMBER: Regex = Regex::new(r"^[0-9]+(?:\.[0-9]+)?").unwrap();
     static ref STRING_LITERAL: Regex = Regex::new(r"^'([^']|'')*'").unwrap();
 }
 
@@ -128,16 +128,16 @@ impl Lexer {
             return Ok(Token::Identifier(text));
         }
         
-        // Try symbols
-        for symbol in &["(", ")", ",", ".", "*", "=", "<", ">", "!", "+", "-", "/", "|"] {
+        // Try multi-char operators first (longest match first)
+        for symbol in &["<=", ">=", "<>", "!=", "||"] {
             if remaining.starts_with(symbol) {
                 self.pos += symbol.len();
                 return Ok(Token::Symbol(symbol.to_string()));
             }
         }
         
-        // Try multi-char operators
-        for symbol in &["<=", ">=", "<>", "!=", "||"] {
+        // Try single-char symbols
+        for symbol in &["(", ")", ",", ".", "*", "=", "<", ">", "!", "+", "-", "/", "|"] {
             if remaining.starts_with(symbol) {
                 self.pos += symbol.len();
                 return Ok(Token::Symbol(symbol.to_string()));
