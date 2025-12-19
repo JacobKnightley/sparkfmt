@@ -295,7 +295,7 @@ fn test_window_function_rank() {
 fn test_window_function_with_frame() {
     let input = "SELECT SUM(x) OVER (PARTITION BY y ORDER BY z ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) FROM t";
     let result = format_sql(input).unwrap();
-    assert!(result.contains("SUM(x) OVER (PARTITION BY y ORDER BY z ROWS UNBOUNDED PRECEDING AND CURRENT ROW)"));
+    assert!(result.contains("SUM(x) OVER (PARTITION BY y ORDER BY z ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)"));
     println!("Result:\n{}", result);
 }
 

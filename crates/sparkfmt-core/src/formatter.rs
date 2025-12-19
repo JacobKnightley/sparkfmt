@@ -295,6 +295,10 @@ fn format_expression(expr: &Expression, output: &mut String) {
                 output.push(' ');
                 output.push_str(&f.unit);
                 output.push(' ');
+                // Add BETWEEN keyword when there's a range with both start and end
+                if f.end.is_some() {
+                    output.push_str("BETWEEN ");
+                }
                 output.push_str(&f.start);
                 if let Some(end) = &f.end {
                     output.push_str(" AND ");
