@@ -19,12 +19,30 @@ fn format_statement(statement: &Statement, output: &mut String, indent: usize) {
         Statement::Select(query) => format_select_query(query, output, indent),
         Statement::SetOperation(op) => format_set_operation(op, output, indent),
         Statement::CreateTable(stmt) => format_create_table(stmt, output, indent),
+        Statement::CreateView(stmt) => format_create_view(stmt, output, indent),
         Statement::DropTable(stmt) => format_drop_table(stmt, output, indent),
+        Statement::DropView(stmt) => format_drop_view(stmt, output, indent),
+        Statement::AlterTable(stmt) => format_alter_table(stmt, output, indent),
+        Statement::TruncateTable(stmt) => format_truncate_table(stmt, output, indent),
         Statement::Describe(stmt) => format_describe(stmt, output, indent),
         Statement::ShowTables(stmt) => format_show_tables(stmt, output, indent),
+        Statement::ShowDatabases(stmt) => format_show_databases(stmt, output, indent),
+        Statement::ShowViews(stmt) => format_show_views(stmt, output, indent),
+        Statement::ShowColumns(stmt) => format_show_columns(stmt, output, indent),
         Statement::InsertInto(stmt) => format_insert_into(stmt, output, indent),
+        Statement::InsertOverwrite(stmt) => format_insert_overwrite(stmt, output, indent),
+        Statement::InsertValues(stmt) => format_insert_values(stmt, output, indent),
+        Statement::Update(stmt) => format_update(stmt, output, indent),
         Statement::DeleteFrom(stmt) => format_delete_from(stmt, output, indent),
+        Statement::Merge(stmt) => format_merge(stmt, output, indent),
+        Statement::Explain(stmt) => format_explain(stmt, output, indent),
+        Statement::Refresh(stmt) => format_refresh(stmt, output, indent),
+        Statement::CacheTable(stmt) => format_cache_table(stmt, output, indent),
+        Statement::UncacheTable(stmt) => format_uncache_table(stmt, output, indent),
+        Statement::ClearCache(stmt) => format_clear_cache(stmt, output, indent),
+        Statement::AnalyzeTable(stmt) => format_analyze_table(stmt, output, indent),
         Statement::SetConfig(stmt) => format_set_config(stmt, output, indent),
+        Statement::Reset(stmt) => format_reset(stmt, output, indent),
         Statement::UseDatabase(stmt) => format_use_database(stmt, output, indent),
     }
 }
@@ -499,4 +517,279 @@ fn format_use_database(stmt: &UseDatabaseStmt, output: &mut String, indent: usiz
     
     output.push_str("USE ");
     output.push_str(&stmt.database_name);
+}
+
+fn format_create_view(stmt: &CreateViewStmt, output: &mut String, indent: usize) {
+    // Format leading comments
+    for comment in &stmt.leading_comments {
+        format_comment(comment, output, indent);
+    }
+    
+    output.push_str("CREATE");
+    if stmt.or_replace {
+        output.push_str(" OR REPLACE");
+    }
+    if stmt.temporary {
+        output.push_str(" TEMPORARY");
+    }
+    output.push_str(" VIEW ");
+    output.push_str(&stmt.view_name);
+    output.push_str(" AS");
+    output.push('\n');
+    
+    format_statement(&stmt.query, output, indent);
+}
+
+fn format_drop_view(stmt: &DropViewStmt, output: &mut String, indent: usize) {
+    // Format leading comments
+    for comment in &stmt.leading_comments {
+        format_comment(comment, output, indent);
+    }
+    
+    output.push_str("DROP VIEW");
+    if stmt.if_exists {
+        output.push_str(" IF EXISTS");
+    }
+    output.push(' ');
+    output.push_str(&stmt.view_name);
+}
+
+fn format_alter_table(stmt: &AlterTableStmt, output: &mut String, indent: usize) {
+    // Format leading comments
+    for comment in &stmt.leading_comments {
+        format_comment(comment, output, indent);
+    }
+    
+    output.push_str("ALTER TABLE ");
+    output.push_str(&stmt.table_name);
+    output.push(' ');
+    output.push_str(&stmt.action);
+}
+
+fn format_truncate_table(stmt: &TruncateTableStmt, output: &mut String, indent: usize) {
+    // Format leading comments
+    for comment in &stmt.leading_comments {
+        format_comment(comment, output, indent);
+    }
+    
+    output.push_str("TRUNCATE TABLE ");
+    output.push_str(&stmt.table_name);
+}
+
+fn format_show_databases(stmt: &ShowDatabasesStmt, output: &mut String, indent: usize) {
+    // Format leading comments
+    for comment in &stmt.leading_comments {
+        format_comment(comment, output, indent);
+    }
+    
+    output.push_str("SHOW DATABASES");
+}
+
+fn format_show_views(stmt: &ShowViewsStmt, output: &mut String, indent: usize) {
+    // Format leading comments
+    for comment in &stmt.leading_comments {
+        format_comment(comment, output, indent);
+    }
+    
+    output.push_str("SHOW VIEWS");
+    if let Some(ref db) = stmt.in_database {
+        output.push_str(" IN ");
+        output.push_str(db);
+    }
+}
+
+fn format_show_columns(stmt: &ShowColumnsStmt, output: &mut String, indent: usize) {
+    // Format leading comments
+    for comment in &stmt.leading_comments {
+        format_comment(comment, output, indent);
+    }
+    
+    output.push_str("SHOW COLUMNS FROM ");
+    output.push_str(&stmt.table_name);
+}
+
+fn format_insert_overwrite(stmt: &InsertOverwriteStmt, output: &mut String, indent: usize) {
+    // Format leading comments
+    for comment in &stmt.leading_comments {
+        format_comment(comment, output, indent);
+    }
+    
+    output.push_str("INSERT OVERWRITE ");
+    output.push_str(&stmt.table_name);
+    output.push('\n');
+    
+    format_statement(&stmt.query, output, indent);
+}
+
+fn format_insert_values(stmt: &InsertValuesStmt, output: &mut String, indent: usize) {
+    // Format leading comments
+    for comment in &stmt.leading_comments {
+        format_comment(comment, output, indent);
+    }
+    
+    output.push_str("INSERT INTO ");
+    output.push_str(&stmt.table_name);
+    output.push_str(" VALUES");
+    
+    for (i, row) in stmt.values.iter().enumerate() {
+        output.push('\n');
+        if i > 0 {
+            output.push(',');
+        }
+        output.push('(');
+        for (j, val) in row.iter().enumerate() {
+            if j > 0 {
+                output.push(',');
+            }
+            output.push_str(val);
+        }
+        output.push(')');
+    }
+}
+
+fn format_update(stmt: &UpdateStmt, output: &mut String, indent: usize) {
+    // Format leading comments
+    for comment in &stmt.leading_comments {
+        format_comment(comment, output, indent);
+    }
+    
+    output.push_str("UPDATE ");
+    output.push_str(&stmt.table_name);
+    output.push('\n');
+    output.push_str("SET");
+    
+    for (i, (col, val)) in stmt.assignments.iter().enumerate() {
+        output.push('\n');
+        if i == 0 {
+            output.push_str("     ");
+        } else {
+            output.push_str("    ,");
+        }
+        output.push_str(col);
+        output.push('=');
+        output.push_str(val);
+    }
+    
+    if let Some(ref where_clause) = stmt.where_clause {
+        output.push('\n');
+        format_where_clause(where_clause, output, indent);
+    }
+}
+
+fn format_merge(stmt: &MergeStmt, output: &mut String, indent: usize) {
+    // Format leading comments
+    for comment in &stmt.leading_comments {
+        format_comment(comment, output, indent);
+    }
+    
+    output.push_str("MERGE INTO ");
+    output.push_str(&stmt.target_table);
+    if let Some(ref alias) = stmt.target_alias {
+        output.push(' ');
+        output.push_str(alias);
+    }
+    output.push('\n');
+    output.push_str("USING ");
+    output.push_str(&stmt.source_table);
+    if let Some(ref alias) = stmt.source_alias {
+        output.push(' ');
+        output.push_str(alias);
+    }
+    output.push('\n');
+    output.push_str("ON ");
+    output.push_str(&stmt.on_condition);
+    
+    if let Some(ref matched) = stmt.when_matched {
+        output.push('\n');
+        output.push_str(matched);
+    }
+    
+    if let Some(ref not_matched) = stmt.when_not_matched {
+        output.push('\n');
+        output.push_str(not_matched);
+    }
+}
+
+fn format_explain(stmt: &ExplainStmt, output: &mut String, indent: usize) {
+    // Format leading comments
+    for comment in &stmt.leading_comments {
+        format_comment(comment, output, indent);
+    }
+    
+    output.push_str("EXPLAIN");
+    if let Some(ref mode) = stmt.mode {
+        output.push(' ');
+        output.push_str(mode);
+    }
+    output.push('\n');
+    
+    format_statement(&stmt.query, output, indent);
+}
+
+fn format_refresh(stmt: &RefreshStmt, output: &mut String, indent: usize) {
+    // Format leading comments
+    for comment in &stmt.leading_comments {
+        format_comment(comment, output, indent);
+    }
+    
+    output.push_str("REFRESH TABLE ");
+    output.push_str(&stmt.table_name);
+}
+
+fn format_cache_table(stmt: &CacheTableStmt, output: &mut String, indent: usize) {
+    // Format leading comments
+    for comment in &stmt.leading_comments {
+        format_comment(comment, output, indent);
+    }
+    
+    output.push_str("CACHE");
+    if stmt.lazy {
+        output.push_str(" LAZY");
+    }
+    output.push_str(" TABLE ");
+    output.push_str(&stmt.table_name);
+    
+    if let Some(ref query) = stmt.query {
+        output.push_str(" AS");
+        output.push('\n');
+        format_statement(query, output, indent);
+    }
+}
+
+fn format_uncache_table(stmt: &UncacheTableStmt, output: &mut String, indent: usize) {
+    // Format leading comments
+    for comment in &stmt.leading_comments {
+        format_comment(comment, output, indent);
+    }
+    
+    output.push_str("UNCACHE TABLE ");
+    output.push_str(&stmt.table_name);
+}
+
+fn format_clear_cache(stmt: &ClearCacheStmt, output: &mut String, indent: usize) {
+    // Format leading comments
+    for comment in &stmt.leading_comments {
+        format_comment(comment, output, indent);
+    }
+    
+    output.push_str("CLEAR CACHE");
+}
+
+fn format_analyze_table(stmt: &AnalyzeTableStmt, output: &mut String, indent: usize) {
+    // Format leading comments
+    for comment in &stmt.leading_comments {
+        format_comment(comment, output, indent);
+    }
+    
+    output.push_str("ANALYZE TABLE ");
+    output.push_str(&stmt.table_name);
+}
+
+fn format_reset(stmt: &ResetStmt, output: &mut String, indent: usize) {
+    // Format leading comments
+    for comment in &stmt.leading_comments {
+        format_comment(comment, output, indent);
+    }
+    
+    output.push_str("RESET");
 }
