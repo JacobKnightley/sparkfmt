@@ -119,6 +119,24 @@ fn format_select_query(query: &SelectQuery, output: &mut String, indent: usize) 
         format_order_by_clause(order_by, output, indent);
     }
     
+    // CLUSTER BY clause (Spark-specific)
+    if let Some(ref cluster_by) = query.cluster_by {
+        output.push('\n');
+        format_cluster_by_clause(cluster_by, output, indent);
+    }
+    
+    // DISTRIBUTE BY clause (Spark-specific)
+    if let Some(ref distribute_by) = query.distribute_by {
+        output.push('\n');
+        format_distribute_by_clause(distribute_by, output, indent);
+    }
+    
+    // SORT BY clause (Spark-specific)
+    if let Some(ref sort_by) = query.sort_by {
+        output.push('\n');
+        format_sort_by_clause(sort_by, output, indent);
+    }
+    
     // LIMIT clause
     if let Some(ref limit) = query.limit {
         output.push('\n');
@@ -748,6 +766,77 @@ fn format_order_by_clause(order_by: &OrderByClause, output: &mut String, indent:
     output.push_str("ORDER BY");
     
     for (i, item) in order_by.items.iter().enumerate() {
+        output.push('\n');
+        
+        if i == 0 {
+            // First item: indent + FIRST_ITEM_INDENT spaces
+            output.push_str(&" ".repeat(indent + FIRST_ITEM_INDENT));
+        } else {
+            // Subsequent items: comma-first with indent + BASE_INDENT
+            output.push_str(&" ".repeat(indent + BASE_INDENT));
+            output.push(',');
+        }
+        
+        format_expression(&item.expr, output);
+        
+        // Preserve existing ASC/DESC
+        if let Some(ref direction) = item.direction {
+            match direction {
+                OrderDirection::Asc => output.push_str(" ASC"),
+                OrderDirection::Desc => output.push_str(" DESC"),
+            }
+        }
+    }
+}
+
+/// Format CLUSTER BY clause (Spark-specific)
+fn format_cluster_by_clause(cluster_by: &ClusterByClause, output: &mut String, indent: usize) {
+    output.push_str(&" ".repeat(indent));
+    output.push_str("CLUSTER BY");
+    
+    for (i, item) in cluster_by.items.iter().enumerate() {
+        output.push('\n');
+        
+        if i == 0 {
+            // First item: indent + FIRST_ITEM_INDENT spaces
+            output.push_str(&" ".repeat(indent + FIRST_ITEM_INDENT));
+        } else {
+            // Subsequent items: comma-first with indent + BASE_INDENT
+            output.push_str(&" ".repeat(indent + BASE_INDENT));
+            output.push(',');
+        }
+        
+        format_expression(item, output);
+    }
+}
+
+/// Format DISTRIBUTE BY clause (Spark-specific)
+fn format_distribute_by_clause(distribute_by: &DistributeByClause, output: &mut String, indent: usize) {
+    output.push_str(&" ".repeat(indent));
+    output.push_str("DISTRIBUTE BY");
+    
+    for (i, item) in distribute_by.items.iter().enumerate() {
+        output.push('\n');
+        
+        if i == 0 {
+            // First item: indent + FIRST_ITEM_INDENT spaces
+            output.push_str(&" ".repeat(indent + FIRST_ITEM_INDENT));
+        } else {
+            // Subsequent items: comma-first with indent + BASE_INDENT
+            output.push_str(&" ".repeat(indent + BASE_INDENT));
+            output.push(',');
+        }
+        
+        format_expression(item, output);
+    }
+}
+
+/// Format SORT BY clause (Spark-specific)
+fn format_sort_by_clause(sort_by: &SortByClause, output: &mut String, indent: usize) {
+    output.push_str(&" ".repeat(indent));
+    output.push_str("SORT BY");
+    
+    for (i, item) in sort_by.items.iter().enumerate() {
         output.push('\n');
         
         if i == 0 {
