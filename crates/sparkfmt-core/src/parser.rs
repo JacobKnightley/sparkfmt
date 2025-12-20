@@ -6,7 +6,15 @@ use lazy_static::lazy_static;
 lazy_static! {
     static ref WHITESPACE: Regex = Regex::new(r"^\s+").unwrap();
     static ref IDENTIFIER: Regex = Regex::new(r"^[a-zA-Z_][a-zA-Z0-9_]*").unwrap();
-    // Support scientific notation (1.5e10, 1E-5) and suffixed literals (100L, 50S, 10Y, 3.14F, 2.718D, 99.99BD)
+    // Support for all Spark SQL numeric literal formats from grammar:
+    // - Integer: 123
+    // - Decimal: 123.456 or .456
+    // - Scientific notation: 1.5e10, 2E-5, 3.14e+2
+    // - Type suffixes: L (BIGINT), S (SMALLINT), Y (TINYINT), F (FLOAT), D (DOUBLE), BD (BIGDECIMAL)
+    // Pattern breakdown:
+    //   (?:[0-9]+\.?[0-9]*|\.[0-9]+)  - Integer, decimal, or leading decimal point
+    //   (?:[eE][+-]?[0-9]+)?          - Optional scientific notation exponent
+    //   (?:[LlSsYyFfDd]|[Bb][Dd])?    - Optional type suffix (case-insensitive)
     static ref NUMBER: Regex = Regex::new(
         r"^(?:[0-9]+\.?[0-9]*|\.[0-9]+)(?:[eE][+-]?[0-9]+)?(?:[LlSsYyFfDd]|[Bb][Dd])?"
     ).unwrap();
@@ -366,9 +374,16 @@ impl Lexer {
         
         // Try double-quoted string (can be identifier or string depending on context)
         if let Some(m) = DOUBLEQUOTED_STRING.find(remaining) {
-            let token = ParserToken::QuotedIdentifier(m.as_str()[1..m.as_str().len()-1].to_string());
-            self.advance_by(m.end());
-            return Ok(token);
+            let matched = m.as_str();
+            // Safely extract content between quotes
+            if matched.len() >= 2 {
+                let token = ParserToken::QuotedIdentifier(matched[1..matched.len()-1].to_string());
+                self.advance_by(m.end());
+                return Ok(token);
+            } else {
+                // Invalid double-quoted string
+                return Err(FormatError::new("Invalid double-quoted string".to_string()));
+            }
         }
         
         // Try number

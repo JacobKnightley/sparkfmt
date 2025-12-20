@@ -116,7 +116,10 @@ fn extract_operators(path: &str) -> io::Result<Vec<Operator>> {
                 let rest = &trimmed[colon_pos + 1..trimmed.len() - 1];
                 let mut symbols = Vec::new();
                 
-                // Extract all quoted strings (don't split by | as it could be inside quotes)
+                // Extract all quoted strings without splitting by '|'
+                // We cannot use split('|') because '|' might be the operator itself inside quotes.
+                // For example: PIPE: '|'; would incorrectly split into '' and '' if we used split.
+                // Instead, we manually walk through the string, tracking quote boundaries.
                 let mut chars = rest.chars().peekable();
                 let mut in_quote = false;
                 let mut current_symbol = String::new();
