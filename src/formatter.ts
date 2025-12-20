@@ -332,8 +332,9 @@ export function formatSql(sql: string): string {
             if (tokenType === SqlBaseLexer.HENT_START) {
                 // Add space before hint if needed
                 if (output.length > 0) {
-                    const last = output[output.length - 1];
-                    if (last !== ' ' && last !== '\n') {
+                    const lastStr = output[output.length - 1];
+                    const lastChar = lastStr.charAt(lastStr.length - 1);
+                    if (lastChar !== ' ' && lastChar !== '\n') {
                         output.push(' ');
                     }
                 }
@@ -354,20 +355,19 @@ export function formatSql(sql: string): string {
                     prevWasFunctionName = false;
                     continue;
                 } else {
-                    // Collect hint content with spacing
-                    // Add space before token if needed (not after ( or , and not before ) or ,)
+                    // Collect hint content with spacing rules:
+                    // - Space before token (unless after '(' or previous was space)
+                    // - No space before ')' or ','
+                    // - Space after ','
                     if (hintContent.length > 0) {
-                        const last = hintContent[hintContent.length - 1];
-                        // Don't add space if last was '(' or if last was ', ' (space after comma)
-                        // or if current token is ')' or ','
-                        const needsSpace = last !== '(' && last !== ' ' && 
+                        const lastElement = hintContent[hintContent.length - 1];
+                        const needsSpace = lastElement !== '(' && lastElement !== ' ' && 
                                           text !== ')' && text !== ',';
                         if (needsSpace) {
                             hintContent.push(' ');
                         }
                     }
                     hintContent.push(text);
-                    // Add space after comma
                     if (text === ',') {
                         hintContent.push(' ');
                     }
