@@ -6,8 +6,13 @@ use lazy_static::lazy_static;
 lazy_static! {
     static ref WHITESPACE: Regex = Regex::new(r"^\s+").unwrap();
     static ref IDENTIFIER: Regex = Regex::new(r"^[a-zA-Z_][a-zA-Z0-9_]*").unwrap();
-    static ref NUMBER: Regex = Regex::new(r"^[0-9]+(?:\.[0-9]+)?").unwrap();
+    // Support scientific notation (1.5e10, 1E-5) and suffixed literals (100L, 50S, 10Y, 3.14F, 2.718D, 99.99BD)
+    static ref NUMBER: Regex = Regex::new(
+        r"^(?:[0-9]+\.?[0-9]*|\.[0-9]+)(?:[eE][+-]?[0-9]+)?(?:[LlSsYyFfDd]|[Bb][Dd])?"
+    ).unwrap();
     static ref STRING_LITERAL: Regex = Regex::new(r"^'([^']|'')*'").unwrap();
+    static ref DOUBLEQUOTED_STRING: Regex = Regex::new(r#"^"([^"\\]|""|\\.)* ""#).unwrap();
+    static ref HEX_BINARY: Regex = Regex::new(r"^[Xx]'[0-9A-Fa-f]*'").unwrap();
 }
 
 pub fn parse(input: &str) -> Result<Statement, FormatError> {
@@ -345,9 +350,23 @@ impl Lexer {
             return Err(FormatError::new("Unterminated quoted identifier".to_string()));
         }
         
+        // Try hex binary literal (X'1F2A')
+        if let Some(m) = HEX_BINARY.find(remaining) {
+            let token = ParserToken::StringLiteral(m.as_str().to_string());
+            self.advance_by(m.end());
+            return Ok(token);
+        }
+        
         // Try string literal
         if let Some(m) = STRING_LITERAL.find(remaining) {
             let token = ParserToken::StringLiteral(m.as_str().to_string());
+            self.advance_by(m.end());
+            return Ok(token);
+        }
+        
+        // Try double-quoted string (can be identifier or string depending on context)
+        if let Some(m) = DOUBLEQUOTED_STRING.find(remaining) {
+            let token = ParserToken::QuotedIdentifier(m.as_str()[1..m.as_str().len()-1].to_string());
             self.advance_by(m.end());
             return Ok(token);
         }
@@ -366,16 +385,17 @@ impl Lexer {
             return Ok(ParserToken::Word(text)); // Preserve original casing
         }
         
-        // Try multi-char operators first (longest match first)
-        for symbol in &["<=", ">=", "<>", "!=", "||", "::"] {
-            if remaining.starts_with(symbol) {
+        // Try multi-char operators and punctuation first (longest match first)
+        // Use generated operators from grammar
+        for symbol in crate::generated::OPERATOR_SYMBOLS.iter() {
+            if remaining.starts_with(*symbol) {
                 self.advance_by(symbol.len());
                 return Ok(ParserToken::Symbol(symbol.to_string()));
             }
         }
         
-        // Try single-char symbols
-        for symbol in &["(", ")", ",", ".", "*", "=", "<", ">", "!", "+", "-", "/", "|", "[", "]", "~", ":"] {
+        // Try single-char punctuation tokens (not in operators list)
+        for symbol in &["(", ")", ",", ".", "[", "]", ";"] {
             if remaining.starts_with(symbol) {
                 self.advance_by(symbol.len());
                 return Ok(ParserToken::Symbol(symbol.to_string()));

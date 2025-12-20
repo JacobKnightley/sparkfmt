@@ -58,6 +58,9 @@ fn extract_keywords(path: &str) -> io::Result<Vec<String>> {
         }
     }
 
+    // Sort keywords alphabetically for binary search
+    keywords.sort();
+    
     Ok(keywords)
 }
 
@@ -238,13 +241,21 @@ fn generate_operators_file(dir: &Path, operators: &[Operator]) {
 
     writeln!(file, "/// Check if a string is a multi-character operator").unwrap();
     writeln!(file, "pub fn is_multi_char_operator(s: &str) -> bool {{").unwrap();
-    writeln!(file, "    matches!(s,").unwrap();
     
-    for symbol in all_symbols.iter().filter(|s| s.len() > 1) {
-        writeln!(file, "        \"{}\" |", symbol.escape_default()).unwrap();
+    let multi_char: Vec<_> = all_symbols.iter().filter(|s| s.len() > 1).collect();
+    if !multi_char.is_empty() {
+        writeln!(file, "    matches!(s,").unwrap();
+        for (i, symbol) in multi_char.iter().enumerate() {
+            if i == multi_char.len() - 1 {
+                writeln!(file, "        \"{}\"", symbol.escape_default()).unwrap();
+            } else {
+                writeln!(file, "        \"{}\" |", symbol.escape_default()).unwrap();
+            }
+        }
+        writeln!(file, "    )").unwrap();
+    } else {
+        writeln!(file, "    false").unwrap();
     }
-    writeln!(file, "        _ => false").unwrap();
-    writeln!(file, "    )").unwrap();
     writeln!(file, "}}").unwrap();
     writeln!(file, "").unwrap();
 
