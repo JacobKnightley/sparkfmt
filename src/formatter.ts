@@ -878,6 +878,12 @@ export function formatSql(sql: string): string {
         // Track if we just output a comma on its own line (comma-first style)
         let justOutputCommaFirstStyle = false;
         
+        // Track if current +/- operator is unary (determined based on previous token)
+        let currentTokenIsUnaryOperator = false;
+        let prevTokenWasUnaryOperator = false; // Track if PREVIOUS token was unary +/-
+        let prevTokenText = ''; // Track previous meaningful token for unary detection
+        let prevTokenType = -1;
+        
         for (let i = 0; i < tokenList.length && i < allOrigTokens.length; i++) {
             const token = tokenList[i];
             const origToken = allOrigTokens[i];
@@ -976,6 +982,39 @@ export function formatSql(sql: string): string {
             const isValuesComma = analyzer.valuesCommas.has(tokenIndex);
             const isSetComma = analyzer.setClauseCommas.has(tokenIndex);
             const isSetKeyword = tokenIndex === analyzer.setKeywordToken;
+            
+            // Detect if current token is a unary +/- operator
+            // Unary if it comes after: (, [, comma, or operators/keywords that start expressions
+            currentTokenIsUnaryOperator = false;
+            if (text === '+' || text === '-') {
+                // Check previous token to determine if this is unary
+                if (prevTokenText === '' || prevTokenText === '(' || prevTokenText === '[' || prevTokenText === ',') {
+                    currentTokenIsUnaryOperator = true;
+                } else {
+                    // Check if previous token was a keyword or operator that expects an expression
+                    const prevSymbolic = prevTokenType >= 0 ? SqlBaseLexer.symbolicNames[prevTokenType] : null;
+                    const expectsExpression = prevSymbolic && (
+                        prevSymbolic === 'SELECT' || prevSymbolic === 'WHERE' || prevSymbolic === 'HAVING' ||
+                        prevSymbolic === 'ON' || prevSymbolic === 'AND' || prevSymbolic === 'OR' ||
+                        prevSymbolic === 'WHEN' || prevSymbolic === 'THEN' || prevSymbolic === 'ELSE' ||
+                        prevSymbolic === 'RETURN' || prevSymbolic === 'CASE' ||
+                        // Comparison operators
+                        prevSymbolic === 'EQ' || prevSymbolic === 'NEQ' || prevSymbolic === 'LT' ||
+                        prevSymbolic === 'LTE' || prevSymbolic === 'GT' || prevSymbolic === 'GTE' ||
+                        prevSymbolic === 'NSEQ' ||
+                        // Arithmetic operators
+                        prevSymbolic === 'PLUS' || prevSymbolic === 'MINUS' || prevSymbolic === 'ASTERISK' ||
+                        prevSymbolic === 'SLASH' || prevSymbolic === 'PERCENT' || prevSymbolic === 'DIV' ||
+                        // Assignment
+                        prevSymbolic === 'EQ' ||
+                        // Other
+                        prevSymbolic === 'AS' || prevSymbolic === 'SET'
+                    );
+                    if (expectsExpression) {
+                        currentTokenIsUnaryOperator = true;
+                    }
+                }
+            }
             
             // Determine output text based on context
             let outputText: string;
@@ -1222,9 +1261,8 @@ export function formatSql(sql: string): string {
                 const prevIsDoubleColon = lastStr.endsWith('::');
                 
                 // Unary operators: no space after - or + when in unary position
-                // Unary position: after (, ,, or at start of expression context
-                const prevIsUnaryOperator = (lastChar === '-' || lastChar === '+') && 
-                    (lastStr.length === 1 || /[(\[,]$/.test(lastStr.slice(0, -1)) || lastStr.endsWith(' -') || lastStr.endsWith(' +') || lastStr.endsWith('\n-') || lastStr.endsWith('\n+'));
+                // This is now determined when processing the operator token itself
+                const prevIsUnaryOperator = prevTokenWasUnaryOperator && (lastChar === '-' || lastChar === '+');
                 
                 // Skip space in certain cases
                 const skipSpace = lastChar === '(' || lastChar === '.' || lastChar === '\n' ||
@@ -1234,7 +1272,8 @@ export function formatSql(sql: string): string {
                     (text === ',' && insideParens > 0) || // No space before comma inside parens
                     justOutputCommaFirstStyle || // No space after comma in comma-first style
                     afterWhereKeyword || afterHavingKeyword || // No space before first condition in multiline WHERE/HAVING
-                    prevIsUnaryOperator; // No space after unary - or +
+                    prevIsUnaryOperator || // No space after unary - or +
+                    lastChar === '[' || text === '[' || text === ']'; // No space around [ and ]
                     
                 // Add comma-space: space after comma inside parens (unless comma-first)
                 const needsCommaSpace = lastChar === ',' && insideParens > 0 && !justOutputCommaFirstStyle;
@@ -1279,6 +1318,11 @@ export function formatSql(sql: string): string {
             prevWasFunctionName = isFunctionCall;
             prevWasBuiltInFunctionKeyword = isBuiltInFunctionKeyword;
             isFirstNonWsToken = false;
+            
+            // Update previous token tracking for unary operator detection
+            prevTokenWasUnaryOperator = currentTokenIsUnaryOperator;
+            prevTokenText = text;
+            prevTokenType = tokenType;
         }
         
         return output.join('').trim();

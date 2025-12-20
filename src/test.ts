@@ -415,7 +415,7 @@ const testCases: TestCase[] = [
     {
         name: 'Lambda expression (TRANSFORM)',
         input: 'select transform(arr, x -> x + 1) from t',
-        expected: 'SELECT TRANSFORM(arr, x -> x +1)\nFROM t',
+        expected: 'SELECT TRANSFORM(arr, x -> x + 1)\nFROM t',
     },
     {
         name: 'Lambda expression (FILTER)',
@@ -425,7 +425,7 @@ const testCases: TestCase[] = [
     {
         name: 'Lambda expression (AGGREGATE)',
         input: 'select aggregate(arr, 0, (acc, x) -> acc + x) from t',
-        expected: 'SELECT AGGREGATE(arr, 0, (acc, x) -> acc +x)\nFROM t',
+        expected: 'SELECT AGGREGATE(arr, 0, (acc, x) -> acc + x)\nFROM t',
     },
     
     // JOIN variants
@@ -539,6 +539,28 @@ const testCases: TestCase[] = [
         name: 'ANALYZE TABLE',
         input: 'analyze table t',
         expected: 'ANALYZE TABLE t',
+    },
+    
+    // Array/map access - no spaces around brackets
+    {
+        name: 'Array access with single element',
+        input: 'select arr[0] from t',
+        expected: 'SELECT arr[0]\nFROM t',
+    },
+    {
+        name: 'Array access with multiple elements',
+        input: 'select arr[0], arr[1], arr[2] from t',
+        expected: 'SELECT\n     arr[0]\n    ,arr[1]\n    ,arr[2]\nFROM t',
+    },
+    {
+        name: 'Map access with string key',
+        input: 'select map["key"] from t',
+        expected: 'SELECT map["KEY"]\nFROM t',
+    },
+    {
+        name: 'Array access with expression',
+        input: 'select arr[i + 1] from t',
+        expected: 'SELECT arr[i + 1]\nFROM t',
     },
 ];
 
