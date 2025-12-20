@@ -9,6 +9,7 @@ repository.workspace = true
 [dependencies]
 regex.workspace = true
 lazy_static.workspace = true
+antlr-rust = "0.3.0-beta"
 
 [dev-dependencies]
 insta.workspace = true
