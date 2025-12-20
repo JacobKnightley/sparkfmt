@@ -24,3 +24,13 @@ target
 example.sql
 example_formatted.sql
 *_formatted.sql
+
+# ANTLR build artifacts (sparkfmt-core)
+# Downloaded during build
+crates/sparkfmt-core/*.jar
+
+# Transformed grammar files (generated from grammar/ at repo root)
+crates/sparkfmt-core/grammar/
+
+# ANTLR generated Rust code
+crates/sparkfmt-core/src/generated/

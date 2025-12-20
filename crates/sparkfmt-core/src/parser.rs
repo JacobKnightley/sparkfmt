@@ -402,7 +402,7 @@ impl Lexer {
         
         // Try multi-char operators and punctuation first (longest match first)
         // Use generated operators from grammar
-        for symbol in crate::generated::OPERATOR_SYMBOLS.iter() {
+        for symbol in crate::build_generated::OPERATOR_SYMBOLS.iter() {
             if remaining.starts_with(*symbol) {
                 self.advance_by(symbol.len());
                 return Ok(ParserToken::Symbol(symbol.to_string()));

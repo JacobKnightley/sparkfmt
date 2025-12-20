@@ -10,5 +10,8 @@ repository.workspace = true
 regex.workspace = true
 lazy_static.workspace = true
 
+# ANTLR runtime (for generated parser)
+antlr4rust = "0.5"
+
 [dev-dependencies]
 insta.workspace = true

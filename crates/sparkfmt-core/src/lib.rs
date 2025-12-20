@@ -5,7 +5,19 @@ pub mod error;
 pub mod keywords;
 pub mod functions;
 pub mod hints;
+
+// Build-time generated code (keywords, operators from grammar)
+pub mod build_generated;
+
+// ANTLR-generated parser code
 pub mod generated;
+
+// ANTLR predicate implementations
+pub mod antlr_predicates;
+pub mod antlr4rust_workarounds;
+
+// Re-export predicate types for convenience
+pub use antlr_predicates::{LexerPredicates, ParserPredicates, ParserConfig};
 
 pub use error::FormatError;
 

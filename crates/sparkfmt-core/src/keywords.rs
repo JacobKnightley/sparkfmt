@@ -5,7 +5,7 @@
 /// The keyword list is derived directly from the Apache Spark grammar files.
 
 // Use the generated keyword functions
-pub use crate::generated::{is_keyword, SPARK_KEYWORDS};
+pub use crate::build_generated::{is_keyword, SPARK_KEYWORDS};
 
 #[cfg(test)]
 mod tests {
