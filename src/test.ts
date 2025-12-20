@@ -130,6 +130,16 @@ const testCases: TestCase[] = [
         input: '/* multi\nline */\nselect x from t',
         expected: '/* multi\nline */\nSELECT\n     x\nFROM t',
     },
+    {
+        name: 'Trailing inline comment',
+        input: 'select x from t -- inline comment',
+        expected: 'SELECT\n     x\nFROM t -- inline comment',
+    },
+    {
+        name: 'Comment in WHERE clause',
+        input: 'select x from t where /* filter */ a = 1',
+        expected: 'SELECT\n     x\nFROM t\nWHERE /* filter */ a = 1',
+    },
     
     // Hints
     {
