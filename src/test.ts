@@ -1,7 +1,7 @@
 /**
  * E2E Tests for Spark SQL Formatter
  * 
- * Tests the same requirements as the Rust ANTLR POC:
+ * Tests:
  * - Uppercase keywords and functions
  * - Newlines on key clauses
  * - Context-sensitive keyword/identifier handling

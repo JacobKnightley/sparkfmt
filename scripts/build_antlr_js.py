@@ -3,11 +3,10 @@
 ANTLR Build Pipeline for Spark SQL Grammar (JavaScript Target)
 
 This script manages the complete build process:
-1. Transform grammar to strip Java code
-2. Generate JavaScript code with ANTLR
-3. Add predicate implementations
-
-Based on the Rust pipeline in sparkfmt-core/build_antlr.py
+1. Download grammar from Apache Spark repository (if needed)
+2. Transform grammar to strip Java code
+3. Generate JavaScript code with ANTLR
+4. Add predicate implementations
 """
 
 import json
@@ -15,48 +14,128 @@ import os
 import re
 import subprocess
 import sys
+import urllib.request
 from pathlib import Path
 from typing import Dict, List
 
 # Configuration
-SCRIPT_DIR = Path(__file__).parent.parent  # poc-antlr4ts/
-GRAMMAR_SOURCE_DIR = SCRIPT_DIR.parent / "grammar"
-GRAMMAR_TRANSFORMED_DIR = SCRIPT_DIR / "grammar"
-GENERATED_DIR = SCRIPT_DIR / "src" / "generated"
-ANTLR_JAR = SCRIPT_DIR / "antlr4.jar"
+SCRIPT_DIR = Path(__file__).parent  # scripts/
+PROJECT_DIR = SCRIPT_DIR.parent  # project root
+GRAMMAR_DIR = PROJECT_DIR / "grammar"
+GENERATED_DIR = PROJECT_DIR / "src" / "generated"
+ANTLR_JAR = PROJECT_DIR / "antlr4.jar"
 
-# Known predicates from sparkfmt-core/KNOWN_PREDICATES.json
-LEXER_PREDICATES = {
-    "methods": [
-        ("isValidDecimal", "is_valid_decimal"),
-        ("isHint", "is_hint"),
-        ("isShiftRightOperator", "is_shift_right_operator"),
-    ],
-    "actions": [
-        ("incComplexTypeLevelCounter", "inc_complex_type_level_counter"),
-        ("decComplexTypeLevelCounter", "dec_complex_type_level_counter"),
-        ("markUnclosedComment", "mark_unclosed_comment"),
-    ],
-    "special": [
-        ("tags.push(getText())", "push_dollar_tag"),
-        ("getText().equals(tags.peek())", "matches_dollar_tag"),
-        ("tags.pop()", "pop_dollar_tag"),
-    ]
-}
+# Spark grammar download URLs
+SPARK_BRANCH = "master"
+SPARK_GRAMMAR_BASE_URL = f"https://raw.githubusercontent.com/apache/spark/{SPARK_BRANCH}/sql/api/src/main/antlr4/org/apache/spark/sql/catalyst/parser"
 
-PARSER_PREDICATES = {
-    "config_flags": [
-        ("legacy_setops_precedence_enabled", False),
-        ("legacy_exponent_literal_as_decimal_enabled", False),
-        ("SQL_standard_keyword_behavior", False),
-        ("double_quoted_identifiers", False),
-        ("parameter_substitution_enabled", True),
-        ("legacy_identifier_clause_only", False),
-        ("single_character_pipe_operator_enabled", True),
-    ],
-    "methods": [
-        ("isOperatorPipeStart", "is_operator_pipe_start"),
-    ]
+# Predicate implementations - these define the BEHAVIOR of predicates found in grammar.
+# The predicate NAMES are extracted from the grammar automatically.
+# The implementations are Spark-specific semantics that can't be auto-generated.
+PREDICATE_IMPLEMENTATIONS = {
+    # Lexer predicates (semantic predicates return bool, actions return void)
+    "isValidDecimal": '''
+/**
+ * Check if current token forms a valid decimal number.
+ * Returns false if followed by letter/digit/underscore (would be part of identifier).
+ */
+SqlBaseLexer.prototype.isValidDecimal = function() {
+    const nextChar = this._input.LA(1);
+    if ((nextChar >= 65 && nextChar <= 90) ||   // A-Z
+        (nextChar >= 97 && nextChar <= 122) ||  // a-z
+        (nextChar >= 48 && nextChar <= 57) ||   // 0-9
+        nextChar === 95) {                       // _
+        return false;
+    }
+    return true;
+};''',
+
+    "isHint": '''
+/**
+ * Check if block comment is a query hint (starts with +).
+ */
+SqlBaseLexer.prototype.isHint = function() {
+    return this._input.LA(1) === 43; // '+'
+};''',
+
+    "isShiftRightOperator": '''
+/**
+ * Check if >> is shift operator vs nested generic closing.
+ */
+SqlBaseLexer.prototype.isShiftRightOperator = function() {
+    return this.complex_type_level_counter === 0;
+};''',
+
+    "incComplexTypeLevelCounter": '''
+/**
+ * Increment counter when entering complex type: MAP<, ARRAY<, STRUCT<
+ */
+SqlBaseLexer.prototype.incComplexTypeLevelCounter = function() {
+    this.complex_type_level_counter++;
+};''',
+
+    "decComplexTypeLevelCounter": '''
+/**
+ * Decrement counter when > closes a complex type.
+ */
+SqlBaseLexer.prototype.decComplexTypeLevelCounter = function() {
+    if (this.complex_type_level_counter > 0) {
+        this.complex_type_level_counter--;
+    }
+};''',
+
+    "markUnclosedComment": '''
+/**
+ * Mark that an unclosed block comment was encountered.
+ */
+SqlBaseLexer.prototype.markUnclosedComment = function() {
+    this.has_unclosed_bracketed_comment = true;
+};''',
+
+    "pushDollarTag": '''
+/**
+ * Push dollar-quoted string tag onto stack.
+ */
+SqlBaseLexer.prototype.pushDollarTag = function() {
+    this.dollar_tags.push(this.getText());
+};''',
+
+    "popDollarTag": '''
+/**
+ * Pop dollar-quoted string tag from stack.
+ */
+SqlBaseLexer.prototype.popDollarTag = function() {
+    if (this.dollar_tags.length > 0) {
+        this.dollar_tags.pop();
+    }
+};''',
+
+    "matchesDollarTag": '''
+/**
+ * Check if current text matches the dollar tag on stack top.
+ */
+SqlBaseLexer.prototype.matchesDollarTag = function() {
+    if (this.dollar_tags.length === 0) return false;
+    return this.getText() === this.dollar_tags[this.dollar_tags.length - 1];
+};''',
+
+    # Parser predicates
+    "isOperatorPipeStart": '''
+/**
+ * Check if current position starts a pipe operator.
+ */
+SqlBaseParser.prototype.isOperatorPipeStart = function() {
+    return this.getCurrentToken().type === this.constructor.PIPE;
+};''',
+
+    # Parser config flags - default values based on Spark's defaults
+    "legacy_setops_precedence_enabled": "SqlBaseParser.prototype.legacy_setops_precedence_enabled = false;",
+    "legacy_exponent_literal_as_decimal_enabled": "SqlBaseParser.prototype.legacy_exponent_literal_as_decimal_enabled = false;",
+    "SQL_standard_keyword_behavior": "SqlBaseParser.prototype.SQL_standard_keyword_behavior = false;",
+    "double_quoted_identifiers": "SqlBaseParser.prototype.double_quoted_identifiers = false;",
+    "parameter_substitution_enabled": "SqlBaseParser.prototype.parameter_substitution_enabled = true;",
+    "legacy_identifier_clause_only": "SqlBaseParser.prototype.legacy_identifier_clause_only = false;",
+    "single_character_pipe_operator_enabled": "SqlBaseParser.prototype.single_character_pipe_operator_enabled = true;",
 }
 
 
@@ -142,17 +221,43 @@ def transform_predicates_for_js(content: str) -> str:
     return content
 
 
+def download_grammar():
+    """Download grammar files from Apache Spark repository if needed."""
+    print("=" * 60)
+    print("Step 1: Checking/downloading grammar files...")
+    print("=" * 60)
+    
+    GRAMMAR_DIR.mkdir(parents=True, exist_ok=True)
+    
+    files_to_download = ["SqlBaseLexer.g4", "SqlBaseParser.g4"]
+    
+    for filename in files_to_download:
+        filepath = GRAMMAR_DIR / filename
+        if filepath.exists():
+            print(f"  {filename}: already exists (skipping download)")
+            continue
+        
+        url = f"{SPARK_GRAMMAR_BASE_URL}/{filename}"
+        print(f"  Downloading {filename} from {url}...")
+        
+        try:
+            urllib.request.urlretrieve(url, filepath)
+            print(f"  {filename}: downloaded successfully")
+        except Exception as e:
+            print(f"  ERROR: Failed to download {filename}: {e}")
+            return False
+    
+    return True
+
+
 def transform_grammar():
     """Transform grammar files for JavaScript ANTLR target."""
+    print("\n" + "=" * 60)
+    print("Step 2: Transforming grammar for JavaScript target...")
     print("=" * 60)
-    print("Step 1: Transforming grammar for JavaScript target...")
-    print("=" * 60)
-    
-    GRAMMAR_TRANSFORMED_DIR.mkdir(parents=True, exist_ok=True)
     
     for filename in ["SqlBaseLexer.g4", "SqlBaseParser.g4"]:
-        source_path = GRAMMAR_SOURCE_DIR / filename
-        output_path = GRAMMAR_TRANSFORMED_DIR / filename
+        source_path = GRAMMAR_DIR / filename
         
         if not source_path.exists():
             print(f"  ERROR: {source_path} not found")
@@ -168,7 +273,8 @@ def transform_grammar():
         # Transform predicate/action syntax for JavaScript (this.xxx)
         content = transform_predicates_for_js(content)
         
-        output_path.write_text(content, encoding='utf-8')
+        # Write transformed grammar back (in-place transformation)
+        source_path.write_text(content, encoding='utf-8')
         new_lines = len(content.splitlines())
         print(f"  {filename}: {original_lines} -> {new_lines} lines (stripped Java code)")
     
@@ -178,13 +284,14 @@ def transform_grammar():
 def generate_antlr():
     """Run ANTLR to generate JavaScript lexer/parser."""
     print("\n" + "=" * 60)
-    print("Step 2: Generating JavaScript code with ANTLR...")
+    print("Step 3: Generating JavaScript code with ANTLR...")
     print("=" * 60)
     
     GENERATED_DIR.mkdir(parents=True, exist_ok=True)
     
     if not ANTLR_JAR.exists():
         print(f"  ERROR: {ANTLR_JAR} not found")
+        print(f"  Download from: https://www.antlr.org/download/antlr-4.13.2-complete.jar")
         return False
     
     # Run ANTLR with JavaScript target
@@ -193,8 +300,8 @@ def generate_antlr():
         "-Dlanguage=JavaScript",
         "-visitor",
         "-o", str(GENERATED_DIR),
-        str(GRAMMAR_TRANSFORMED_DIR / "SqlBaseLexer.g4"),
-        str(GRAMMAR_TRANSFORMED_DIR / "SqlBaseParser.g4"),
+        str(GRAMMAR_DIR / "SqlBaseLexer.g4"),
+        str(GRAMMAR_DIR / "SqlBaseParser.g4"),
     ]
     
     print(f"  Running ANTLR...")
@@ -217,11 +324,38 @@ def generate_antlr():
     return True
 
 
+def extract_predicates_from_grammar():
+    """Extract predicate names from transformed grammar files."""
+    predicates = {"lexer": set(), "parser": set()}
+    
+    for filename, key in [("SqlBaseLexer.g4", "lexer"), ("SqlBaseParser.g4", "parser")]:
+        filepath = GRAMMAR_DIR / filename
+        if not filepath.exists():
+            continue
+        
+        content = filepath.read_text(encoding='utf-8')
+        
+        # Find all {this.xxx()} patterns (method calls)
+        methods = re.findall(r'\{[^}]*this\.(\w+)\(\)[^}]*\}', content)
+        predicates[key].update(methods)
+        
+        # Find all {this.xxx}? patterns (variable access in predicates)
+        variables = re.findall(r'\{[^}]*this\.(\w+)\}\?', content)
+        predicates[key].update(variables)
+    
+    return predicates
+
+
 def add_predicate_implementations():
-    """Add JavaScript implementations for all predicates."""
+    """Add JavaScript implementations for predicates found in grammar."""
     print("\n" + "=" * 60)
-    print("Step 3: Adding predicate implementations...")
+    print("Step 4: Adding predicate implementations...")
     print("=" * 60)
+    
+    # Extract predicates from grammar
+    grammar_predicates = extract_predicates_from_grammar()
+    print(f"  Predicates found in lexer grammar: {sorted(grammar_predicates['lexer'])}")
+    print(f"  Predicates found in parser grammar: {sorted(grammar_predicates['parser'])}")
     
     # Process Lexer
     lexer_path = GENERATED_DIR / "SqlBaseLexer.js"
@@ -231,107 +365,34 @@ def add_predicate_implementations():
     
     content = lexer_path.read_text(encoding='utf-8')
     
-    # The generated file has the predicates called as this.xxx()
-    # We need to add the method implementations at the end
-    
-    lexer_predicates_js = '''
+    # Build lexer predicate implementations
+    lexer_impl = '''
 
 // ============================================================================
-// Lexer Predicate Implementations (from Java @members)
-// Based on sparkfmt-core/KNOWN_PREDICATES.json
+// Lexer Predicate Implementations
+// Predicates extracted from grammar, implementations based on Spark behavior
 // ============================================================================
 
-// State
+// State variables required by predicates
 SqlBaseLexer.prototype.has_unclosed_bracketed_comment = false;
 SqlBaseLexer.prototype.complex_type_level_counter = 0;
 SqlBaseLexer.prototype.dollar_tags = [];
-
-/**
- * Check if current token forms a valid decimal number.
- * Returns false if followed by letter/digit/underscore (would be part of identifier).
- */
-SqlBaseLexer.prototype.isValidDecimal = function() {
-    const nextChar = this._input.LA(1);
-    // Check if next char is A-Z, a-z, 0-9, or _
-    if ((nextChar >= 65 && nextChar <= 90) ||   // A-Z
-        (nextChar >= 97 && nextChar <= 122) ||  // a-z
-        (nextChar >= 48 && nextChar <= 57) ||   // 0-9
-        nextChar === 95) {                       // _
-        return false;
-    }
-    return true;
-};
-
-/**
- * Check if block comment is a query hint (starts with +).
- * Hints look like: /--+ BROADCAST(t) --/  (using /*+ in actual SQL)
- */
-SqlBaseLexer.prototype.isHint = function() {
-    return this._input.LA(1) === 43; // '+'
-};
-
-/**
- * Check if >> is shift operator vs nested generic closing.
- * Inside MAP<K, ARRAY<V>>, the >> should be two separate > tokens.
- */
-SqlBaseLexer.prototype.isShiftRightOperator = function() {
-    return this.complex_type_level_counter === 0;
-};
-
-/**
- * Increment counter when entering complex type: MAP<, ARRAY<, STRUCT<
- */
-SqlBaseLexer.prototype.incComplexTypeLevelCounter = function() {
-    this.complex_type_level_counter++;
-};
-
-/**
- * Decrement counter when > closes a complex type.
- */
-SqlBaseLexer.prototype.decComplexTypeLevelCounter = function() {
-    if (this.complex_type_level_counter > 0) {
-        this.complex_type_level_counter--;
-    }
-};
-
-/**
- * Mark that an unclosed block comment was encountered (for error reporting).
- */
-SqlBaseLexer.prototype.markUnclosedComment = function() {
-    this.has_unclosed_bracketed_comment = true;
-};
-
-/**
- * Push dollar-quoted string tag onto stack.
- * For $tag$content$tag$, pushes "tag".
- */
-SqlBaseLexer.prototype.pushDollarTag = function() {
-    this.dollar_tags.push(this.getText());
-};
-
-/**
- * Pop dollar-quoted string tag from stack.
- */
-SqlBaseLexer.prototype.popDollarTag = function() {
-    if (this.dollar_tags.length > 0) {
-        this.dollar_tags.pop();
-    }
-};
-
-/**
- * Check if current text matches tag on top of stack.
- */
-SqlBaseLexer.prototype.matchesDollarTag = function() {
-    if (this.dollar_tags.length === 0) return false;
-    return this.getText() === this.dollar_tags[this.dollar_tags.length - 1];
-};
 '''
     
-    # Append at end of file
-    content = content.rstrip() + lexer_predicates_js
+    # Add implementations for each lexer predicate found in grammar
+    missing_lexer = []
+    for pred in sorted(grammar_predicates['lexer']):
+        if pred in PREDICATE_IMPLEMENTATIONS:
+            lexer_impl += PREDICATE_IMPLEMENTATIONS[pred] + '\n'
+        else:
+            missing_lexer.append(pred)
     
+    if missing_lexer:
+        print(f"  WARNING: No implementation for lexer predicates: {missing_lexer}")
+    
+    content = content.rstrip() + lexer_impl
     lexer_path.write_text(content, encoding='utf-8')
-    print(f"  Added lexer predicates to SqlBaseLexer.js")
+    print(f"  Added {len(grammar_predicates['lexer']) - len(missing_lexer)} lexer predicate implementations")
     
     # Process Parser
     parser_path = GENERATED_DIR / "SqlBaseParser.js"
@@ -341,108 +402,74 @@ SqlBaseLexer.prototype.matchesDollarTag = function() {
     
     content = parser_path.read_text(encoding='utf-8')
     
-    parser_predicates_js = '''
+    # Build parser predicate implementations
+    parser_impl = '''
 
 // ============================================================================
-// Parser Predicate Implementations (from Java @members)
-// Based on sparkfmt-core/KNOWN_PREDICATES.json
+// Parser Predicate Implementations
+// Predicates extracted from grammar, implementations based on Spark behavior
 // ============================================================================
-
-// Configuration flags (can be set before parsing to change behavior)
-SqlBaseParser.prototype.legacy_setops_precedence_enabled = false;
-SqlBaseParser.prototype.legacy_exponent_literal_as_decimal_enabled = false;
-SqlBaseParser.prototype.SQL_standard_keyword_behavior = false;
-SqlBaseParser.prototype.double_quoted_identifiers = false;
-SqlBaseParser.prototype.parameter_substitution_enabled = true;
-SqlBaseParser.prototype.legacy_identifier_clause_only = false;
-SqlBaseParser.prototype.single_character_pipe_operator_enabled = true;
-
-/**
- * Check if |> pipe operator is starting.
- * Looks ahead to see if PIPE is followed by GT.
- */
-SqlBaseParser.prototype.isOperatorPipeStart = function() {
-    // Check if next token after PIPE is GT (>)
-    return this._input.LA(2) === SqlBaseParser.GT;
-};
 '''
     
-    # Append at end of file
-    content = content.rstrip() + parser_predicates_js
+    # Add implementations for each parser predicate found in grammar
+    missing_parser = []
+    for pred in sorted(grammar_predicates['parser']):
+        if pred in PREDICATE_IMPLEMENTATIONS:
+            parser_impl += PREDICATE_IMPLEMENTATIONS[pred] + '\n'
+        else:
+            missing_parser.append(pred)
     
+    if missing_parser:
+        print(f"  WARNING: No implementation for parser predicates: {missing_parser}")
+    
+    content = content.rstrip() + parser_impl
     parser_path.write_text(content, encoding='utf-8')
-    print(f"  Added parser predicates to SqlBaseParser.js")
+    print(f"  Added {len(grammar_predicates['parser']) - len(missing_parser)} parser predicate implementations")
     
     return True
 
 
 def verify_predicates():
-    """Verify that all known predicates are properly implemented."""
+    """Verify that all predicates from grammar have implementations."""
     print("\n" + "=" * 60)
-    print("Step 4: Verifying predicate coverage...")
+    print("Step 5: Verifying predicate coverage...")
     print("=" * 60)
     
+    # Extract what grammar requires
+    grammar_predicates = extract_predicates_from_grammar()
+    
+    # Check what implementations we have
     lexer_path = GENERATED_DIR / "SqlBaseLexer.js"
     parser_path = GENERATED_DIR / "SqlBaseParser.js"
     
-    issues = []
-    
-    # Known predicates we must implement (from KNOWN_PREDICATES.json)
-    required_lexer_predicates = [
-        'isValidDecimal', 'isHint', 'isShiftRightOperator',
-        'incComplexTypeLevelCounter', 'decComplexTypeLevelCounter', 
-        'markUnclosedComment', 'pushDollarTag', 'popDollarTag', 'matchesDollarTag'
-    ]
-    
-    required_parser_predicates = [
-        'isOperatorPipeStart'
-    ]
-    
-    required_parser_flags = [
-        'legacy_setops_precedence_enabled', 'legacy_exponent_literal_as_decimal_enabled',
-        'SQL_standard_keyword_behavior', 'double_quoted_identifiers',
-        'parameter_substitution_enabled', 'legacy_identifier_clause_only',
-        'single_character_pipe_operator_enabled'
-    ]
-    
-    # Check lexer
     lexer_content = lexer_path.read_text(encoding='utf-8')
-    lexer_impls = set(re.findall(r'SqlBaseLexer\.prototype\.(\w+)\s*=', lexer_content))
-    
-    print(f"\n  Lexer:")
-    print(f"    Required predicates: {required_lexer_predicates}")
-    print(f"    Implementations found: {sorted(lexer_impls)}")
-    
-    missing_lexer = set(required_lexer_predicates) - lexer_impls
-    if missing_lexer:
-        issues.append(f"Lexer missing implementations: {missing_lexer}")
-    
-    # Check parser
     parser_content = parser_path.read_text(encoding='utf-8')
+    
+    lexer_impls = set(re.findall(r'SqlBaseLexer\.prototype\.(\w+)\s*=', lexer_content))
     parser_impls = set(re.findall(r'SqlBaseParser\.prototype\.(\w+)\s*=', parser_content))
     
+    print(f"\n  Lexer:")
+    print(f"    Grammar requires: {sorted(grammar_predicates['lexer'])}")
+    print(f"    Implemented: {sorted(grammar_predicates['lexer'] & lexer_impls)}")
+    
     print(f"\n  Parser:")
-    print(f"    Required predicates: {required_parser_predicates}")
-    print(f"    Required flags: {required_parser_flags}")
-    print(f"    Implementations found: {sorted(parser_impls)}")
+    print(f"    Grammar requires: {sorted(grammar_predicates['parser'])}")
+    print(f"    Implemented: {sorted(grammar_predicates['parser'] & parser_impls)}")
     
-    missing_parser_predicates = set(required_parser_predicates) - parser_impls
-    if missing_parser_predicates:
-        issues.append(f"Parser missing method implementations: {missing_parser_predicates}")
+    # Check for missing
+    missing_lexer = grammar_predicates['lexer'] - lexer_impls
+    missing_parser = grammar_predicates['parser'] - parser_impls
     
-    # Check parser flags are defined
-    missing_parser_flags = [f for f in required_parser_flags if f'prototype.{f}' not in parser_content]
-    if missing_parser_flags:
-        issues.append(f"Parser missing flag definitions: {missing_parser_flags}")
-    
-    if issues:
-        print("\n  ⚠ Issues found:")
-        for issue in issues:
-            print(f"    - {issue}")
+    if missing_lexer or missing_parser:
+        print("\n  ⚠ Missing implementations:")
+        if missing_lexer:
+            print(f"    Lexer: {sorted(missing_lexer)}")
+        if missing_parser:
+            print(f"    Parser: {sorted(missing_parser)}")
         return False
-    else:
-        print("\n  ✓ All known predicates are implemented")
-        return True
+    
+    print("\n  ✓ All grammar predicates are implemented")
+    return True
 
 
 def main():
@@ -452,6 +479,7 @@ def main():
     print("=" * 60)
     
     steps = [
+        ("Download grammar", download_grammar),
         ("Transform grammar", transform_grammar),
         ("Generate JavaScript", generate_antlr),
         ("Add predicates", add_predicate_implementations),

@@ -7,6 +7,13 @@ dist/
 # ANTLR generated files
 src/generated/
 
+# ANTLR jar (downloaded at build time)
+antlr4.jar
+*.jar
+
+# Grammar files (downloaded from Apache Spark at build time)
+grammar/
+
 # IDE
 .idea/
 .vscode/

@@ -1,6 +1,6 @@
 # Spark SQL Formatter Test Expectations
 
-This document lists all SQL formatting test cases from the sparkfmt-core crate, showing INPUT → OUTPUT expectations.
+This document lists all SQL formatting test cases, showing INPUT → OUTPUT expectations.
 
 ## Table of Contents
 - [Basic SELECT](#basic-select)

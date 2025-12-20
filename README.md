@@ -110,12 +110,11 @@ src/
 └── generated/      # ANTLR-generated parser (gitignored)
 
 scripts/
-└── build_antlr_js.py  # Build script for ANTLR parser
+└── build_antlr_js.py  # Downloads grammar & generates parser
 
-grammar/
+grammar/               # Downloaded from Apache Spark (gitignored)
 ├── SqlBaseLexer.g4    # Source of truth for keywords
-├── SqlBaseParser.g4   # Source of truth for grammar rules
-└── VERSION            # Spark version
+└── SqlBaseParser.g4   # Source of truth for grammar rules
 ```
 
 ## Grammar-Driven Architecture
@@ -130,10 +129,4 @@ This ensures if Spark's grammar supports it, the formatter supports it automatic
 
 ## Why JavaScript/TypeScript?
 
-The Rust ANTLR runtime (`antlr4rust`) causes **stack overflow** when parsing Spark SQL grammar, even for simple queries like `SELECT a FROM t`. This is due to:
-
-1. Deep grammar recursion in Spark SQL
-2. Rust's stack-based recursion in the ANTLR runtime
-3. WASM's fixed ~1MB stack limit in browsers
-
-The JavaScript ANTLR4 runtime handles deep recursion through the JS engine's optimization, making it suitable for browser extensions.
+The JavaScript ANTLR4 runtime handles the deep grammar recursion in Spark SQL efficiently through the JS engine's optimization, making it suitable for both Node.js and browser environments.
