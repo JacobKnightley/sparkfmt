@@ -2,6 +2,8 @@
 
 **IMPORTANT: Do NOT ask follow-up questions. Complete this refactor end-to-end autonomously.**
 
+**This document is committed to the repository at `REFACTOR_TO_ANTLR4.md`. If you need to re-read these instructions at any point during implementation, read that file.**
+
 ## ⛔ CRITICAL: Do NOT Deviate from ANTLR4 Approach
 
 **If you encounter ANY issues with the ANTLR4 approach (download failures, compilation errors, etc.), STOP IMMEDIATELY and report the error. Do NOT:**
