@@ -2,6 +2,12 @@
 
 ## Core Principle (Authoritative)
 
+> **This project is grammar-driven, NOT rule/linter-driven.**
+>
+> The Apache Spark ANTLR grammar files (`SqlBaseLexer.g4`, `SqlBaseParser.g4`) are the **single source of truth**. All keywords, operators, tokens, and syntactic constructs are derived from these files—not hand-coded.
+>
+> **Non-negotiable requirement:** If Spark's grammar supports it, we support it. No exceptions. No silent drops.
+
 > **Formatting is a full reprint from tokens and structure.**  
 > **User whitespace is ignored entirely.**
 
@@ -9,6 +15,36 @@ The formatter must:
 - Discard all original whitespace and line breaks
 - Preserve only: syntactic structure, string literals, quoted identifiers, and comments
 - Generate all formatting output exclusively via the printer
+- **Never silently drop tokens** - unknown constructs must error, not disappear
+
+## Grammar-Driven Architecture
+
+### Source of Truth
+- Grammar files: `grammar/SqlBaseLexer.g4`, `grammar/SqlBaseParser.g4`
+- Downloaded from Apache Spark repository
+- Keywords extracted from `//--SPARK-KEYWORD-LIST-START` to `//--SPARK-KEYWORD-LIST-END`
+
+### Build-Time Code Generation
+- `build.rs` generates `src/generated/keywords.rs`, `tokens.rs`, `rules.rs`
+- **No hand-coded keyword lists** - all derived from grammar
+- Build fails if grammar coverage is incomplete
+
+### Critical Anti-Pattern: Silent Drops
+```rust
+// FORBIDDEN - causes silent data loss
+match token {
+    ParserToken::Word(w) => { /* handle */ }
+    _ => {}  // NEVER DO THIS
+}
+
+// REQUIRED - fail loudly or preserve
+match token {
+    ParserToken::Word(w) => { /* handle */ }
+    other => {
+        return Err(FormatError::new(format!("Unhandled token: {:?}", other)));
+    }
+}
+```
 
 ## Token Normalization Rules
 
@@ -172,10 +208,20 @@ Output SQL String
    - Extract tokens with position info (line, column)
    - Preserve comments as Comment tokens
    - Record enough info to determine TrailingInline vs Leading
+   - Must handle ALL token types from grammar:
+     - Scientific notation: `1.5e10`, `1E-5`
+     - Suffixed literals: `100L`, `50S`, `10Y`, `3.14F`, `2.718D`, `99.99BD`
+     - All operators: `<=>`, `::`, `->`, `=>`, `||`, `|>`, `<<`, `>>`, `>>>`
+     - Hex literals: `0x1F`, `X'1F2A'`
 
 2. **Parser**
    - Build AST from non-comment tokens
    - Attach comments to nodes/tokens using anchoring rules
+   - Must recognize ALL grammar rules:
+     - `queryOrganization`: ORDER BY, CLUSTER BY, DISTRIBUTE BY, SORT BY, LIMIT, OFFSET
+     - `queryTerm`: UNION, EXCEPT, INTERSECT, MINUS
+     - `joinType`: all join variants including LEFT SEMI, LEFT ANTI
+     - `primaryExpression`: Lambda (`x -> x+1`), double-colon cast (`x::INT`), unlimited nested field access (`a.b.c.d.e`)
 
 3. **Formatting IR**
    - Store token sequences (not strings) for expressions
@@ -194,3 +240,34 @@ Output SQL String
 - Always test idempotence
 - Always verify comment preservation
 - Always check WASM build
+- **Never add `_ => {}` catch-all that drops tokens**
+
+## Key Files
+
+| File | Purpose |
+|------|---------|
+| `grammar/SqlBaseLexer.g4` | Source of truth for keywords, operators, literals |
+| `grammar/SqlBaseParser.g4` | Source of truth for grammar rules |
+| `scripts/parse_spark_grammar.py` | Parses grammar, generates test SQL, reports coverage gaps |
+| `grammar_analysis.json` | Machine-readable grammar analysis output |
+| `GRAMMAR_DRIVEN_ARCHITECTURE.md` | Detailed mandate for grammar-driven implementation |
+| `KNOWN_BUGS.md` | Running list of confirmed bugs with reproduction steps |
+| `test_data/grammar_coverage/*.sql` | Generated test files covering all grammar constructs |
+
+## Current Known Issues (see KNOWN_BUGS.md)
+
+### Critical (Silent Data Loss)
+- Scientific notation: `1e10` → `1 AS e10` (exponent dropped)
+- Nested field access: `a.b.c.d` → `a.b` (truncated after 2 levels)
+- Hex literals: `0x1F` → `0 AS x1F` (corrupted)
+- Quoted identifiers in type parameters dropped (`_ => {}` pattern)
+
+### Medium (Unsupported Constructs)
+- CLUSTER BY, DISTRIBUTE BY, SORT BY (Spark-specific)
+- EXCEPT, INTERSECT, MINUS (set operations)
+- Lambda expressions (`x -> x + 1`)
+- Double-colon cast (`x::INT`)
+
+### Comment Handling
+- Comment after LIMIT is dropped (Bug 17)
+- Comments after GROUP BY/ORDER BY items use fallback placement (not inline)
