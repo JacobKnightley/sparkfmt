@@ -110,6 +110,7 @@ class ParseTreeAnalyzer extends SqlBaseParserVisitor {
     // Track CTE/subquery parentheses for indentation
     subqueryOpenParens: Set<number> = new Set();
     subqueryCloseParens: Set<number> = new Set();
+    setOperandParens: Set<number> = new Set(); // Opening parens that need newline (set operation operands)
     
     // Track CTE commas for comma-first formatting
     cteCommas: Set<number> = new Set();
@@ -143,6 +144,9 @@ class ParseTreeAnalyzer extends SqlBaseParserVisitor {
     mergeUsingTokens: Set<number> = new Set();
     mergeOnTokens: Set<number> = new Set();
     mergeWhenTokens: Set<number> = new Set();
+    
+    // Track LATERAL VIEW column list commas (should not have space before)
+    lateralViewCommas: Set<number> = new Set();
     
     // Track current SELECT token for associating with list items
     private currentSelectToken: number = -1;
@@ -212,8 +216,10 @@ class ParseTreeAnalyzer extends SqlBaseParserVisitor {
     
     visitLateralView(ctx: any): any {
         // LATERAL VIEW explode(...) - mark the function name as function call
-        // Grammar: LATERAL VIEW (OUTER)? qualifiedName LEFT_PAREN ...
+        // Grammar: LATERAL VIEW (OUTER)? qualifiedName LEFT_PAREN (expression (COMMA expression)*)? 
+        //          RIGHT_PAREN tblName=identifier (AS? colName+=identifier (COMMA colName+=identifier)*)?
         if (ctx.children) {
+            let foundRightParen = false;
             for (let i = 0; i < ctx.children.length; i++) {
                 const child = ctx.children[i];
                 // Find qualifiedName (the function name like 'explode')
@@ -221,7 +227,17 @@ class ParseTreeAnalyzer extends SqlBaseParserVisitor {
                     const ruleName = SqlBaseParser.ruleNames[child.ruleIndex];
                     if (ruleName === 'qualifiedName' && child.start) {
                         this.functionCallTokens.add(child.start.tokenIndex);
-                        break;
+                    }
+                }
+                // Track RIGHT_PAREN - commas after this are in the column name list
+                if (child.symbol) {
+                    const symName = SqlBaseLexer.symbolicNames[child.symbol.type];
+                    if (symName === 'RIGHT_PAREN') {
+                        foundRightParen = true;
+                    }
+                    // Mark commas after the RIGHT_PAREN as LATERAL VIEW commas
+                    if (foundRightParen && symName === 'COMMA') {
+                        this.lateralViewCommas.add(child.symbol.tokenIndex);
                     }
                 }
             }
@@ -489,18 +505,45 @@ class ParseTreeAnalyzer extends SqlBaseParserVisitor {
     }
     
     visitSetOperation(ctx: any): any {
-        // UNION, EXCEPT, INTERSECT - find the operator token
+        // UNION, EXCEPT, INTERSECT - find the operator token and mark subquery parens
         if (ctx.children) {
+            let foundSetOperator = false;
             for (const child of ctx.children) {
                 if (child.symbol) {
                     const symName = SqlBaseLexer.symbolicNames[child.symbol.type];
                     if (symName === 'UNION' || symName === 'EXCEPT' || symName === 'INTERSECT') {
                         this.clauseStartTokens.add(child.symbol.tokenIndex);
+                        foundSetOperator = true;
+                    }
+                } else {
+                    // Check for SubqueryContext nested inside QueryTermDefaultContext
+                    // that comes after the set operator
+                    if (foundSetOperator) {
+                        const subquery = this._findSubqueryContext(child);
+                        if (subquery && subquery.start) {
+                            this.setOperandParens.add(subquery.start.tokenIndex);
+                        }
                     }
                 }
             }
         }
         return this.visitChildren(ctx);
+    }
+    
+    private _findSubqueryContext(ctx: any): any {
+        // Find SubqueryContext in the children tree
+        if (!ctx) return null;
+        const className = ctx.constructor?.name || '';
+        if (className === 'SubqueryContext') return ctx;
+        if (ctx.children) {
+            for (const child of ctx.children) {
+                if (!child.symbol) { // Only recurse into rule contexts
+                    const found = this._findSubqueryContext(child);
+                    if (found) return found;
+                }
+            }
+        }
+        return null;
     }
     
     visitSelectClause(ctx: any): any {
@@ -543,6 +586,17 @@ class ParseTreeAnalyzer extends SqlBaseParserVisitor {
     // ========== LIST CONTEXTS (SELECT columns, GROUP BY, ORDER BY) ==========
     
     visitNamedExpressionSeq(ctx: any): any {
+        // namedExpressionSeq appears in SELECT column list but also inside PIVOT aggregates
+        // Only apply comma-first formatting for actual SELECT columns
+        // Check if parent is pivotClause, unpivotClause, or lateral view
+        const parentClass = ctx.parentCtx?.constructor?.name || '';
+        if (parentClass === 'PivotClauseContext' || 
+            parentClass === 'UnpivotClauseContext' ||
+            parentClass === 'LateralViewContext') {
+            // Skip list formatting for these contexts
+            return this.visitChildren(ctx);
+        }
+        
         // SELECT column list
         const hasMultiple = this._markListContext(ctx);
         if (hasMultiple && this.currentSelectToken >= 0) {
@@ -711,6 +765,12 @@ class ParseTreeAnalyzer extends SqlBaseParserVisitor {
     
     visitSubqueryExpression(ctx: any): any {
         // Scalar subquery: (SELECT ...)
+        this._markSubqueryParens(ctx);
+        return this.visitChildren(ctx);
+    }
+    
+    visitSubquery(ctx: any): any {
+        // Parenthesized query in set operations: (SELECT ...) UNION ALL (SELECT ...)
         this._markSubqueryParens(ctx);
         return this.visitChildren(ctx);
     }
@@ -985,6 +1045,19 @@ class ParseTreeAnalyzer extends SqlBaseParserVisitor {
     
     private _markCommasInContext(ctx: any): void {
         if (!ctx || !ctx.children) return;
+        
+        // Don't descend into contexts where commas are NOT list separators
+        // Check constructor name because labeled alternatives (like #functionCall)
+        // create distinct context classes but share the same ruleIndex
+        const className = ctx.constructor?.name || '';
+        
+        // Skip function calls - commas there are argument separators, not list item separators
+        if (className === 'FunctionCallContext') return;
+        // Skip pivot/unpivot clauses - commas there have their own semantics  
+        if (className === 'PivotClauseContext' || className === 'UnpivotClauseContext') return;
+        // Skip lateral view - commas there are column name separators
+        if (className === 'LateralViewContext') return;
+        
         for (const child of ctx.children) {
             if (child.symbol) {
                 if (child.symbol.type === getTokenType('COMMA')) {
@@ -1007,25 +1080,33 @@ class ParseTreeAnalyzer extends SqlBaseParserVisitor {
         }
     }
     
-    private _countConditionOperators(ctx: any): number {
+    private _countConditionOperators(ctx: any, parenDepth: number = 0): number {
         let count = 0;
         if (!ctx) return count;
         
-        // Recursively count AND/OR tokens (but exclude BETWEEN's AND)
+        // Recursively count AND/OR tokens (but exclude BETWEEN's AND and those inside parentheses)
         if (ctx.children) {
+            let currentParenDepth = parenDepth;
             for (const child of ctx.children) {
                 if (child.symbol) {
                     const symbolicName = SqlBaseLexer.symbolicNames[child.symbol.type];
-                    if (symbolicName === 'AND' || symbolicName === 'OR') {
+                    
+                    // Track parenthesis depth
+                    if (symbolicName === 'LEFT_PAREN') {
+                        currentParenDepth++;
+                    } else if (symbolicName === 'RIGHT_PAREN') {
+                        currentParenDepth--;
+                    } else if (symbolicName === 'AND' || symbolicName === 'OR') {
                         // Don't count AND that's part of BETWEEN x AND y
-                        if (!this.betweenAndTokens.has(child.symbol.tokenIndex)) {
+                        // Don't count AND/OR inside parentheses - those should stay inline
+                        if (!this.betweenAndTokens.has(child.symbol.tokenIndex) && currentParenDepth === 0) {
                             count++;
                             this.conditionOperators.add(child.symbol.tokenIndex);
                         }
                     }
                 }
-                // Recurse into children
-                count += this._countConditionOperators(child);
+                // Recurse into children, passing current paren depth
+                count += this._countConditionOperators(child, currentParenDepth);
             }
         }
         return count;
@@ -1289,6 +1370,7 @@ export function formatSql(sql: string): string {
             const isJoinOn = analyzer.joinOnTokens.has(tokenIndex);
             const isSubqueryOpenParen = analyzer.subqueryOpenParens.has(tokenIndex);
             const isSubqueryCloseParen = analyzer.subqueryCloseParens.has(tokenIndex);
+            const isSetOperandParen = analyzer.setOperandParens.has(tokenIndex);
             const isCteComma = analyzer.cteCommas.has(tokenIndex);
             const isDdlComma = analyzer.ddlColumnCommas.has(tokenIndex);
             const isDdlOpenParen = analyzer.ddlOpenParens.has(tokenIndex);
@@ -1297,6 +1379,7 @@ export function formatSql(sql: string): string {
             const isValuesComma = analyzer.valuesCommas.has(tokenIndex);
             const isSetComma = analyzer.setClauseCommas.has(tokenIndex);
             const isSetKeyword = tokenIndex === analyzer.setKeywordToken;
+            const isLateralViewComma = analyzer.lateralViewCommas.has(tokenIndex);
             
             // Track CASE expression tokens
             const isMultiWhenCase = analyzer.multiWhenCaseTokens.has(tokenIndex);
@@ -1495,6 +1578,12 @@ export function formatSql(sql: string): string {
                 indent = getBaseIndent(subqueryDepth + ddlDepth);
             }
             
+            // Set operation operand parens need newline before them (e.g., UNION ALL (\n    SELECT...))
+            if (isSetOperandParen && !isFirstNonWsToken) {
+                needsNewline = true;
+                indent = getBaseIndent(subqueryDepth + ddlDepth);
+            }
+            
             // Subquery close paren handling - comes BEFORE the paren on its own line
             if (isSubqueryCloseParen) {
                 needsNewline = true;
@@ -1682,6 +1771,7 @@ export function formatSql(sql: string): string {
                         text === '::' || prevIsDoubleColon || // No space around ::
                         (text === '(' && (prevWasFunctionName || prevWasBuiltInFunctionKeyword)) || // No space before ( after function
                         (text === ',' && insideParens > 0) || // No space before comma inside parens
+                        isLateralViewComma || // No space before comma in LATERAL VIEW column list
                         justOutputCommaFirstStyle || // No space after comma in comma-first style
                         afterWhereKeyword || afterHavingKeyword || // No space before first condition in multiline WHERE/HAVING
                         prevIsUnaryOperator || // No space after unary - or +

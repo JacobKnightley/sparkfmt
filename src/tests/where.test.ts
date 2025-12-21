@@ -56,5 +56,18 @@ export const whereTests: TestSuite = {
             input: 'select x from t where x rlike pattern',
             expected: 'SELECT x\nFROM t\nWHERE x RLIKE pattern',
         },
+        
+        // === BUG: LIKE ESCAPE CLAUSE ===
+        // ESCAPE clause should stay with LIKE expression
+        {
+            name: 'LIKE with ESCAPE backslash',
+            input: 'select a from t where name like \'%\\_test%\' escape \'\\\\\'',
+            expected: 'SELECT a\nFROM t\nWHERE name LIKE \'%\\_test%\' ESCAPE \'\\\\\'',
+        },
+        {
+            name: 'Multiple conditions after LIKE ESCAPE',
+            input: 'select a from t where name like \'%test%\' escape \'!\' and status = 1',
+            expected: 'SELECT a\nFROM t\nWHERE\n    name LIKE \'%test%\' ESCAPE \'!\'\n    AND status = 1',
+        },
     ],
 };

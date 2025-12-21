@@ -26,6 +26,14 @@ export const caseExpressionTests: TestSuite = {
             input: 'select case when x = 1 then "a" when x = 2 then "b" end from t',
             expected: 'SELECT\n     CASE\n        WHEN x = 1 THEN "A"\n        WHEN x = 2 THEN "B"\n     END\nFROM t',
         },
+        
+        // Nested CASE: inner CASE inside THEN stays inline when it's single-WHEN
+        // The outer CASE follows normal multiline rules (>1 WHEN triggers multiline)
+        {
+            name: 'CASE inside CASE THEN should indent inner CASE',
+            input: 'select case when a = 1 then case when b = 2 then \'x\' else \'y\' end else \'z\' end from t',
+            expected: 'SELECT CASE WHEN a = 1 THEN CASE WHEN b = 2 THEN \'x\' ELSE \'y\' END ELSE \'z\' END\nFROM t',
+        },
     ],
 };
 

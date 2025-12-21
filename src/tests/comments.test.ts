@@ -282,6 +282,45 @@ export const commentTests: TestSuite = {
             input: 'select x from t -- comment\n',
             expected: 'SELECT x\nFROM t -- comment',
         },
+        
+        // === BUG: COMMENT AFTER OPENING PAREN ===
+        // Space should be preserved between "(" and line comment
+        {
+            name: 'Line comment after CTE opening paren should preserve space',
+            input: 'with cte as ( -- comment\nselect a from t\n) select * from cte',
+            expected: 'WITH cte AS ( -- comment\n    SELECT a\n    FROM t\n)\nSELECT *\nFROM cte',
+        },
+        {
+            name: 'Line comment after LATERAL opening paren',
+            input: 'select * from t left join lateral ( -- subquery\nselect a from s\n) sub on true',
+            expected: 'SELECT *\nFROM t\nLEFT JOIN LATERAL ( -- subquery\n    SELECT a\n    FROM s\n) sub\n    ON TRUE',
+        },
+        
+        // === BUG: COMMENT BETWEEN STATEMENTS ===
+        // Comments between ")" and next statement should stay on own line
+        {
+            name: 'Block comment between CTE close and SELECT on own line',
+            input: 'with cte as (select a from t)\n/* main query */\nselect * from cte',
+            expected: 'WITH cte AS (\n    SELECT a\n    FROM t\n)\n/* main query */\nSELECT *\nFROM cte',
+        },
+        {
+            name: 'Line comment between CTE close and SELECT',
+            input: 'with cte as (select a from t)\n-- main query\nselect * from cte',
+            expected: 'WITH cte AS (\n    SELECT a\n    FROM t\n)\n-- main query\nSELECT *\nFROM cte',
+        },
+        
+        // === BUG: STANDALONE LINE COMMENTS ===
+        // Comments on their own line should stay on own line, not collapse to inline
+        {
+            name: 'Comment on own line before column stays on own line',
+            input: 'select\n    -- user info\n    id,\n    name\nfrom users',
+            expected: 'SELECT\n     -- user info\n     id\n    ,name\nFROM users',
+        },
+        {
+            name: 'Comment between clauses on own line',
+            input: 'select a from t\n-- filter active only\nwhere status = 1',
+            expected: 'SELECT a\nFROM t\n-- filter active only\nWHERE status = 1',
+        },
     ],
 };
 

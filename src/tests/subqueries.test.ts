@@ -63,5 +63,41 @@ export const setOperationTests: TestSuite = {
             input: 'select a from t1 intersect select a from t2',
             expected: 'SELECT a\nFROM t1\nINTERSECT\nSELECT a\nFROM t2',
         },
+        
+        // === BUG: SET OPERATIONS WITH PARENTHESES ===
+        // Parenthesized queries should have proper indentation
+        {
+            name: 'UNION ALL with parenthesized queries',
+            input: '(select a from t1) union all (select b from t2)',
+            expected: '(\n    SELECT a\n    FROM t1\n)\nUNION ALL\n(\n    SELECT b\n    FROM t2\n)',
+        },
+        {
+            name: 'Parenthesized query closing paren on own line',
+            input: '(select a, b from t where x > 10)',
+            expected: '(\n    SELECT\n         a\n        ,b\n    FROM t\n    WHERE x > 10\n)',
+        },
+    ],
+};
+
+// === BUG: SUBQUERY INDENTATION IN WHERE ===
+// Scalar and IN subqueries in WHERE should have proper indentation
+export const subqueryIndentationTests: TestSuite = {
+    name: 'Subquery Indentation in WHERE',
+    tests: [
+        {
+            name: 'Scalar subquery in WHERE should indent content',
+            input: 'select a from t where x = (select max(y) from s)',
+            expected: 'SELECT a\nFROM t\nWHERE x = (\n    SELECT MAX(y)\n    FROM s\n)',
+        },
+        {
+            name: 'IN subquery in WHERE should indent content',
+            input: 'select a from t where x in (select y from s where z > 10)',
+            expected: 'SELECT a\nFROM t\nWHERE x IN (\n    SELECT y\n    FROM s\n    WHERE z > 10\n)',
+        },
+        {
+            name: 'NOT EXISTS subquery should indent content',
+            input: 'select a from t where not exists (select 1 from s where s.id = t.id)',
+            expected: 'SELECT a\nFROM t\nWHERE NOT EXISTS (\n    SELECT 1\n    FROM s\n    WHERE s.id = t.id\n)',
+        },
     ],
 };

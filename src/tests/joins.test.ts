@@ -46,5 +46,18 @@ export const joinTests: TestSuite = {
             input: 'select a.id, b.name from orders a join customers b on a.cust_id=b.id',
             expected: 'SELECT\n     a.id\n    ,b.name\nFROM orders a\nJOIN customers b\n    ON a.cust_id = b.id',
         },
+        
+        // === BUG: AND/OR INSIDE PARENS IN ON CLAUSE ===
+        // AND inside parentheses should stay inline, not split
+        {
+            name: 'AND inside parentheses should stay inline',
+            input: 'select * from a join b on x = y or (p is null and q = true)',
+            expected: 'SELECT *\nFROM a\nJOIN b\n    ON x = y\n    OR (p IS NULL AND q = TRUE)',
+        },
+        {
+            name: 'Complex OR with parenthesized AND',
+            input: 'select * from a join b on (a.id = b.id and a.type = b.type) or (a.alt_id = b.id)',
+            expected: 'SELECT *\nFROM a\nJOIN b\n    ON (a.id = b.id AND a.type = b.type)\n    OR (a.alt_id = b.id)',
+        },
     ],
 };
