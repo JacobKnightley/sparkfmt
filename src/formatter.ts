@@ -65,26 +65,8 @@ function isKeywordToken(tokenType: number, tokenText: string): boolean {
     return !nonKeywordTypes.has(symbolicName);
 }
 
-/**
- * Check if a keyword should always be uppercased, even when appearing in identifier contexts.
- * These are keywords that have standalone semantic meaning and should never be treated as identifiers.
- * For example: ALL in "GROUP BY ALL" should be uppercase, not treated as a column name.
- */
-function isStandaloneKeyword(tokenType: number, tokenText: string): boolean {
-    const symbolicName = SqlBaseLexer.symbolicNames[tokenType];
-    if (!symbolicName) return false;
-    
-    // Keywords that should always be uppercase, even in identifier contexts
-    const standaloneKeywords = new Set([
-        'ALL',      // GROUP BY ALL
-        'DISTINCT', // SELECT DISTINCT
-        'NULL',     // NULL values
-        'TRUE',     // Boolean literal
-        'FALSE',    // Boolean literal
-    ]);
-    
-    return standaloneKeywords.has(symbolicName);
-}
+// Note: Previously had a hardcoded isStandaloneKeyword function, but that violates
+// the grammar-driven principle. Instead, we detect GROUP BY ALL through parse tree context.
 
 /**
  * Visitor that collects context information from parse tree:
@@ -168,6 +150,9 @@ class ParseTreeAnalyzer extends SqlBaseParserVisitor {
     
     // Track LATERAL VIEW column list commas (should not have space before)
     lateralViewCommas: Set<number> = new Set();
+    
+    // Track GROUP BY ALL - the ALL token should be uppercased (grammar-driven detection)
+    groupByAllTokens: Set<number> = new Set();
     
     // Track current SELECT token for associating with list items
     private currentSelectToken: number = -1;
@@ -370,6 +355,12 @@ class ParseTreeAnalyzer extends SqlBaseParserVisitor {
     visitAggregationClause(ctx: any): any {
         // GROUP BY clause
         this._markClauseStart(ctx);
+        
+        // Check for GROUP BY ALL - mark the ALL token for uppercasing
+        // Grammar: GROUP BY ... where ALL can appear as identifier (nonReserved)
+        // When ALL appears directly after GROUP BY, it's the special "group by all" syntax
+        this._markGroupByAllToken(ctx);
+        
         // Mark commas in GROUP BY list (but not inside GROUPING SETS/ROLLUP/CUBE)
         const commaCount = this._markListCommasExcludingGroupingAnalytics(ctx);
         // Only make GROUP BY multiline if there are actual list commas (not inside groupingAnalytics)
@@ -658,6 +649,87 @@ class ParseTreeAnalyzer extends SqlBaseParserVisitor {
             }
         }
         return count;
+    }
+    
+    /**
+     * Grammar-driven detection of GROUP BY ALL.
+     * 
+     * In the grammar, GROUP BY ALL parses as:
+     *   aggregationClause: GROUP BY groupByClause
+     *   groupByClause: expression
+     *   expression → ... → primaryExpression → identifier → nonReserved → ALL
+     * 
+     * We detect when ALL (with symbolic name 'ALL') appears as the sole expression
+     * in a GROUP BY clause - this is the special "group by all" Spark syntax.
+     */
+    private _markGroupByAllToken(ctx: any): void {
+        if (!ctx || !ctx.children) return;
+        
+        // Look for the ALL token that appears as the grouping expression
+        // Pattern: GROUP BY ALL (where ALL is parsed as an identifier)
+        let foundGroupBy = false;
+        
+        for (const child of ctx.children) {
+            if (child.symbol) {
+                const symName = SqlBaseLexer.symbolicNames[child.symbol.type];
+                if (symName === 'BY') {
+                    foundGroupBy = true;
+                } else if (foundGroupBy && symName === 'ALL') {
+                    // ALL token appears right after GROUP BY
+                    this.groupByAllTokens.add(child.symbol.tokenIndex);
+                    return;
+                }
+            } else if (foundGroupBy && child.ruleIndex !== undefined) {
+                // Check inside groupByClause/expression for ALL
+                const allToken = this._findAllTokenInGroupByExpression(child);
+                if (allToken) {
+                    this.groupByAllTokens.add(allToken.tokenIndex);
+                    return;
+                }
+            }
+        }
+    }
+    
+    /**
+     * Recursively search for ALL token in a GROUP BY expression.
+     * Only marks ALL if it's the entire expression (not part of a larger expression).
+     */
+    private _findAllTokenInGroupByExpression(ctx: any): any {
+        if (!ctx) return null;
+        
+        // If this context has only one meaningful child and it's ALL, return it
+        if (ctx.symbol) {
+            const symName = SqlBaseLexer.symbolicNames[ctx.symbol.type];
+            if (symName === 'ALL') {
+                return ctx.symbol;
+            }
+            return null;
+        }
+        
+        if (!ctx.children) return null;
+        
+        // For rule contexts, check if it's a simple identifier chain leading to ALL
+        const ruleName = ctx.ruleIndex !== undefined ? SqlBaseParser.ruleNames[ctx.ruleIndex] : null;
+        
+        // These rules form the path from expression to identifier to ALL
+        const identifierPathRules = new Set([
+            'groupByClause', 'expression', 'booleanExpression', 'valueExpression',
+            'primaryExpression', 'columnReference', 'identifier', 'strictIdentifier',
+            'nonReserved', 'namedExpression'
+        ]);
+        
+        if (ruleName && identifierPathRules.has(ruleName)) {
+            // Check if single child (simple identifier, not complex expression)
+            const meaningfulChildren = ctx.children.filter((c: any) => 
+                c.symbol || (c.ruleIndex !== undefined)
+            );
+            
+            if (meaningfulChildren.length === 1) {
+                return this._findAllTokenInGroupByExpression(meaningfulChildren[0]);
+            }
+        }
+        
+        return null;
     }
     
     // ========== CONDITION CONTEXTS (WHERE/HAVING) ==========
@@ -1583,9 +1655,8 @@ function formatSingleStatement(sql: string): string {
             if (isSetConfigToken) {
                 // SET config key/value → preserve original casing
                 outputText = text;
-            } else if (isStandaloneKeyword(tokenType, text)) {
-                // Standalone keywords (ALL, DISTINCT, NULL, etc.) → always uppercase
-                // Even if they appear in identifier contexts
+            } else if (analyzer.groupByAllTokens.has(tokenIndex)) {
+                // GROUP BY ALL - the ALL keyword should be uppercased (detected from parse tree)
                 outputText = text.toUpperCase();
             } else if (isFunctionCall) {
                 // Check if it's a built-in function using the authoritative list from Spark source
