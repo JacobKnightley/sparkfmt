@@ -349,6 +349,47 @@ class ParseTreeAnalyzer extends SqlBaseParserVisitor {
         return this.visitChildren(ctx);
     }
     
+    visitCast(ctx: any): any {
+        // CAST(expr AS type) or TRY_CAST(expr AS type)
+        // Mark as function call and collect for potential expansion
+        if (ctx.start) {
+            this.functionCallTokens.add(ctx.start.tokenIndex);
+        }
+        
+        // Collect CAST as potentially expandable
+        // CAST has only one argument (the expression), then AS type closes it
+        // We treat it as a "single arg" function for expansion - the expr goes on new line,
+        // but AS type stays with the closing paren
+        if (ctx.children) {
+            let leftParenTokenIndex: number | null = null;
+            let rightParenTokenIndex: number | null = null;
+            
+            for (const child of ctx.children) {
+                if (child.symbol) {
+                    const symName = SqlBaseLexer.symbolicNames[child.symbol.type];
+                    if (symName === 'LEFT_PAREN' && leftParenTokenIndex === null) {
+                        leftParenTokenIndex = child.symbol.tokenIndex;
+                    } else if (symName === 'RIGHT_PAREN') {
+                        rightParenTokenIndex = child.symbol.tokenIndex;
+                    }
+                }
+            }
+            
+            // Store as expandable function with NO commas (single arg)
+            // The closing paren logic will put ) AS type on one line
+            if (leftParenTokenIndex !== null && rightParenTokenIndex !== null) {
+                const spanLength = this._calculateSpanLength(ctx);
+                this.multiArgFunctionInfo.set(leftParenTokenIndex, {
+                    closeParenIndex: rightParenTokenIndex,
+                    commaIndices: [],  // No commas - single arg function
+                    spanLength: spanLength
+                });
+            }
+        }
+        
+        return this.visitChildren(ctx);
+    }
+    
     visitPosition(ctx: any): any {
         // POSITION(substr IN str) - mark POSITION keyword as function call
         if (ctx.start) {
@@ -1617,6 +1658,8 @@ function formatSingleStatement(sql: string): string {
             closeParenIndex: number;
             commaIndices: Set<number>;
             depth: number;  // Nesting depth of this expanded function (0 = outermost)
+            openingColumn: number;  // Column where the function name started (for closing paren alignment)
+            firstArgIsChainedFunc: boolean;  // True if first arg is also an expanding function (e.g., CONV(RIGHT(...))
         }
         const expandedFunctionStack: ExpandedFunction[] = [];
         let justOutputMultiArgFunctionNewline = false; // Track if we just output newline+indent for multi-arg function
@@ -2103,7 +2146,7 @@ function formatSingleStatement(sql: string): string {
             // Put closing paren on its own line at function's indent level
             if (isExpandedFunctionCloseParen && currentExpandedFunc) {
                 needsNewline = true;
-                // Closing paren at parent level (aligns with containing comma)
+                // Closing paren at parent level (aligns with containing comma) - depth-based
                 const closeIndent = getExpandedFunctionCloseIndent(currentExpandedFunc.depth);
                 indent = ' '.repeat(closeIndent);
             }
@@ -2207,7 +2250,7 @@ function formatSingleStatement(sql: string): string {
             // Put each argument on its own line when function has been expanded
             if (isExpandedFunctionComma && currentExpandedFunc) {
                 needsNewline = true;
-                // Comma at content indent (comma-first style)
+                // Comma at content indent (comma-first style) - depth-based
                 const contentIndent = getExpandedFunctionContentIndent(currentExpandedFunc.depth);
                 indent = ' '.repeat(contentIndent);
                 justOutputCommaFirstStyle = true;
@@ -2390,20 +2433,65 @@ function formatSingleStatement(sql: string): string {
                 const wouldExceedWidth = currentColumn + spanLength > MAX_LINE_WIDTH;
                 
                 if (wouldExceedWidth) {
-                    // Need to expand - push to stack and add newline
+                    // Check if first arg starts with another function that will also expand (chained open)
+                    // Chain pattern: alternate between chaining and not chaining based on depth.
+                    // Depth 0 (top level): don't chain - put first arg on new line
+                    // Depth 1 (inside depth 0): chain with next function if it expands
+                    // Depth 2 (inside depth 1): don't chain - put first arg on new line
+                    // This creates the visual pattern: CAST(\n  CONV(RIGHT(\n    MD5...
+                    let firstArgIsChainedFunc = false;
+                    const currentDepth = expandedFunctionStack.length;
+                    
+                    // Chain only at odd depths (1, 3, 5...) and only if next is also expanding
+                    const shouldConsiderChaining = currentDepth % 2 === 1;
+                    
+                    if (shouldConsiderChaining) {
+                        // Find the immediate next token after this opening paren
+                        const nextTokenIdx = findNextNonWsTokenIndex(i + 1);
+                        if (nextTokenIdx > 0 && nextTokenIdx < tokenList.length) {
+                            const nextToken = tokenList[nextTokenIdx];
+                            // Check if the next token is a function call (function name)
+                            // and if the token AFTER that is an opening paren with multi-arg info
+                            const isNextTokenFuncName = analyzer.functionCallTokens.has(nextToken.tokenIndex);
+                            if (isNextTokenFuncName) {
+                                // Find the opening paren after this function name
+                                const parenIdx = findNextNonWsTokenIndex(nextTokenIdx + 1);
+                                if (parenIdx > 0 && parenIdx < tokenList.length) {
+                                    const parenToken = tokenList[parenIdx];
+                                    const nestedFuncInfo = analyzer.multiArgFunctionInfo.get(parenToken.tokenIndex);
+                                    if (nestedFuncInfo) {
+                                        // The immediate first arg is a multi-arg function
+                                        // Chain with it - let the nested function decide its own expansion
+                                        firstArgIsChainedFunc = true;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    
+                    // Calculate opening column (where the function name started, before the paren)
+                    // We need to track back to the function name token
+                    const openingColumn = currentColumn - 1; // -1 for the '(' we just output
+                    
                     const depth = expandedFunctionStack.length;
                     expandedFunctionStack.push({
                         closeParenIndex: multiArgFuncInfo.closeParenIndex,
                         commaIndices: new Set(multiArgFuncInfo.commaIndices),
-                        depth: depth
+                        depth: depth,
+                        openingColumn: openingColumn,
+                        firstArgIsChainedFunc: firstArgIsChainedFunc
                     });
                     
-                    // Add newline after the opening paren with proper indentation
-                    // First arg at content indent + 1 (comma-first style: first item gets +1)
-                    const contentIndent = getExpandedFunctionContentIndent(depth);
-                    const newIndent = '\n' + ' '.repeat(contentIndent + 1);
-                    pushOutput(newIndent);
-                    justOutputMultiArgFunctionNewline = true; // Skip extra space before next token
+                    // If first arg is a chained function, don't output newline - keep inline like CONV(RIGHT(
+                    // The nested function will handle its own expansion
+                    if (!firstArgIsChainedFunc) {
+                        // Add newline after the opening paren with proper indentation
+                        // First arg at content indent (no +1 since we want alignment with subsequent args' commas)
+                        const contentIndent = getExpandedFunctionContentIndent(depth);
+                        const newIndent = '\n' + ' '.repeat(contentIndent);
+                        pushOutput(newIndent);
+                        justOutputMultiArgFunctionNewline = true; // Skip extra space before next token
+                    }
                 }
             }
             
@@ -2488,7 +2576,8 @@ function formatSingleStatement(sql: string): string {
         }
         
         return output.join('').trim();
-    } catch {
+    } catch (e: any) {
+        console.error('Formatter error:', e.message, e.stack);
         return sql;
     }
 }
