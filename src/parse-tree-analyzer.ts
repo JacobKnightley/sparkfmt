@@ -21,7 +21,7 @@ import SqlBaseParser from './generated/SqlBaseParser.js';
 import SqlBaseParserVisitor from './generated/SqlBaseParserVisitor.js';
 
 import { getTokenType } from './token-utils.js';
-import type { AnalyzerResult, MultiArgFunctionInfo, WindowDefInfo } from './types.js';
+import type { AnalyzerResult, MultiArgFunctionInfo, WindowDefInfo, SimpleQueryInfo } from './types.js';
 
 /**
  * Visitor that collects context information from parse tree.
@@ -101,6 +101,9 @@ export class ParseTreeAnalyzer extends SqlBaseParserVisitor {
     // Window definition expansion
     windowDefInfo: Map<number, WindowDefInfo> = new Map();
     
+    // Simple query compaction
+    simpleQueries: Map<number, SimpleQueryInfo> = new Map();
+    
     // Internal state
     private currentSelectToken: number = -1;
 
@@ -148,6 +151,7 @@ export class ParseTreeAnalyzer extends SqlBaseParserVisitor {
             groupByAllTokens: this.groupByAllTokens,
             multiArgFunctionInfo: this.multiArgFunctionInfo,
             windowDefInfo: this.windowDefInfo,
+            simpleQueries: this.simpleQueries,
         };
     }
 
@@ -652,11 +656,192 @@ export class ParseTreeAnalyzer extends SqlBaseParserVisitor {
     // ========== QUERY DEPTH TRACKING ==========
     
     visitQuerySpecification(ctx: any): any {
+        return this._visitQuerySpec(ctx);
+    }
+    
+    visitRegularQuerySpecification(ctx: any): any {
+        return this._visitQuerySpec(ctx);
+    }
+    
+    private _visitQuerySpec(ctx: any): any {
+        const currentDepth = this.subqueryDepth;
         this.subqueryDepth++;
         this._markDepthForContext(ctx);
+        
+        // Analyze if this query is simple enough to stay compact
+        this._analyzeSimpleQuery(ctx, currentDepth);
+        
         const result = this.visitChildren(ctx);
         this.subqueryDepth--;
         return result;
+    }
+    
+    /**
+     * Analyze if a query is simple enough to stay on one line.
+     * Simple query criteria:
+     * - SELECT has 1 item (including *, t.*)
+     * - FROM has 1 table (no JOINs)
+     * - WHERE has 0 or 1 condition (no AND/OR at top level)
+     * - No GROUP BY, ORDER BY, HAVING, or single-item versions
+     * - No LIMIT/OFFSET or simple LIMIT
+     */
+    private _analyzeSimpleQuery(ctx: any, depth: number): void {
+        if (!ctx || !ctx.children) return;
+        
+        let selectClause: any = null;
+        let fromClause: any = null;
+        let whereClause: any = null;
+        let hasJoin = false;
+        let hasGroupBy = false;
+        let hasOrderBy = false;
+        let hasHaving = false;
+        let hasLimit = false;
+        let selectToken: any = null;
+        
+        // Scan children to find clauses
+        for (const child of ctx.children) {
+            if (!child) continue;
+            const ruleName = child.ruleIndex !== undefined ? SqlBaseParser.ruleNames[child.ruleIndex] : null;
+            const className = child.constructor?.name || '';
+            
+            if (className === 'SelectClauseContext' || ruleName === 'selectClause') {
+                selectClause = child;
+                if (child.start) {
+                    selectToken = child.start;
+                }
+            } else if (className === 'FromClauseContext' || ruleName === 'fromClause') {
+                fromClause = child;
+                // Check for JOINs in FROM clause
+                hasJoin = this._hasJoinInFromClause(child);
+            } else if (className === 'WhereClauseContext' || ruleName === 'whereClause') {
+                whereClause = child;
+            } else if (className === 'AggregationClauseContext' || ruleName === 'aggregationClause') {
+                hasGroupBy = true;
+            } else if (className === 'HavingClauseContext' || ruleName === 'havingClause') {
+                hasHaving = true;
+            }
+        }
+        
+        // Check parent for ORDER BY / LIMIT (they're in queryOrganization, not querySpecification)
+        // For now, we'll handle this by checking if ORDER BY/LIMIT tokens are in our range
+        
+        // Can't be simple if has JOINs
+        if (hasJoin) return;
+        
+        // Can't be simple if has GROUP BY or HAVING (for now - could relax for single-item)
+        if (hasGroupBy || hasHaving) return;
+        
+        // Check SELECT clause - must have single item
+        if (!selectClause || !this._hasSingleSelectItem(selectClause)) return;
+        
+        // Check WHERE clause - must have 0 or 1 condition (no AND/OR)
+        if (whereClause && this._hasMultipleConditions(whereClause)) return;
+        
+        // This query qualifies as simple
+        if (selectToken) {
+            const spanLength = this._calculateSpanLength(ctx);
+            this.simpleQueries.set(selectToken.tokenIndex, {
+                selectTokenIndex: selectToken.tokenIndex,
+                spanLength: spanLength,
+                depth: depth,
+            });
+        }
+    }
+    
+    /**
+     * Check if FROM clause contains any JOINs.
+     */
+    private _hasJoinInFromClause(fromClause: any): boolean {
+        if (!fromClause || !fromClause.children) return false;
+        
+        const checkForJoin = (node: any): boolean => {
+            if (!node) return false;
+            
+            const className = node.constructor?.name || '';
+            if (className === 'JoinRelationContext') return true;
+            
+            if (node.symbol) {
+                const symName = SqlBaseLexer.symbolicNames[node.symbol.type];
+                if (symName === 'JOIN' || symName === 'CROSS' || symName === 'NATURAL') {
+                    return true;
+                }
+            }
+            
+            if (node.children) {
+                for (const child of node.children) {
+                    if (checkForJoin(child)) return true;
+                }
+            }
+            return false;
+        };
+        
+        return checkForJoin(fromClause);
+    }
+    
+    /**
+     * Check if SELECT clause has a single item (*, t.*, or one expression).
+     */
+    private _hasSingleSelectItem(selectClause: any): boolean {
+        if (!selectClause || !selectClause.children) return false;
+        
+        // Look for namedExpressionSeq
+        for (const child of selectClause.children) {
+            const className = child.constructor?.name || '';
+            if (className === 'NamedExpressionSeqContext') {
+                // Count items by looking for commas
+                let commaCount = 0;
+                const countCommas = (node: any): void => {
+                    if (!node) return;
+                    if (node.symbol && node.symbol.type === getTokenType('COMMA')) {
+                        commaCount++;
+                    }
+                    if (node.children) {
+                        for (const c of node.children) {
+                            countCommas(c);
+                        }
+                    }
+                };
+                countCommas(child);
+                return commaCount === 0; // Single item means no commas
+            }
+        }
+        
+        return true; // Default to true if no namedExpressionSeq (like SELECT *)
+    }
+    
+    /**
+     * Check if WHERE/HAVING clause has multiple conditions (AND/OR at top level).
+     */
+    private _hasMultipleConditions(clause: any): boolean {
+        if (!clause || !clause.children) return false;
+        
+        // Find the predicated expression and check for AND/OR
+        const checkForAndOr = (node: any, depth: number): boolean => {
+            if (!node) return false;
+            if (depth > 3) return false; // Don't go too deep
+            
+            if (node.symbol) {
+                const symName = SqlBaseLexer.symbolicNames[node.symbol.type];
+                if (symName === 'AND' || symName === 'OR') {
+                    return true;
+                }
+            }
+            
+            // Check for logicalBinary rule which indicates AND/OR
+            const className = node.constructor?.name || '';
+            if (className === 'LogicalBinaryContext') {
+                return true;
+            }
+            
+            if (node.children) {
+                for (const child of node.children) {
+                    if (checkForAndOr(child, depth + 1)) return true;
+                }
+            }
+            return false;
+        };
+        
+        return checkForAndOr(clause, 0);
     }
     
     // ========== PRIVATE HELPER METHODS ==========

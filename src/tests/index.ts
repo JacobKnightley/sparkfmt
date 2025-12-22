@@ -22,6 +22,7 @@ import { utilityTests } from './utility.test.js';
 import { magicCommandsTests } from './magic-commands.test.js';
 import { semicolonTests } from './semicolon.test.js';
 import { noqaStatementTests, noqaExpansionTests } from './noqa.test.js';
+import { compactQueryTests } from './compact-query.test.js';
 
 // All test suites in order
 const allSuites = [
@@ -56,6 +57,7 @@ const allSuites = [
     semicolonTests,
     noqaStatementTests,
     noqaExpansionTests,
+    compactQueryTests,
 ];
 
 function main(): void {

@@ -64,7 +64,7 @@ export const noqaStatementTests: TestSuite = {
         {
             name: 'Second statement with noqa',
             input: 'select a from t1; -- noqa\nselect * from t2',
-            expected: 'SELECT a\nFROM t1;\n\n-- noqa\nselect * from t2',
+            expected: 'SELECT a FROM t1;\n\n-- noqa\nselect * from t2',
         },
     ],
 };

@@ -228,6 +228,16 @@ function formatTokens(
     let currentExpandedWindow: ExpandedWindow | null = null;
     let lastProcessedIndex = -1;
     
+    // Track which simple queries are actually compact (fit within line width)
+    const compactQueries = new Set<number>();
+    for (const [selectToken, info] of analysis.simpleQueries) {
+        // For subqueries (depth > 0), check if they fit from current position
+        // For main queries (depth === 0), check if they fit from start
+        if (info.spanLength <= MAX_LINE_WIDTH) {
+            compactQueries.add(selectToken);
+        }
+    }
+    
     // Helper to find next non-WS token
     const findNextNonWsTokenIndex = (startIdx: number): number => {
         for (let j = startIdx; j < tokenList.length; j++) {
@@ -319,6 +329,33 @@ function formatTokens(
         
         // Get context from analysis
         const ctx = getTokenContext(tokenIndex, analysis);
+        
+        // Compact query tracking: enter compact mode when we hit SELECT of a simple query
+        const simpleQueryInfo = analysis.simpleQueries.get(tokenIndex);
+        if (simpleQueryInfo && symbolicName === 'SELECT') {
+            state.inCompactQuery = true;
+            state.compactQueryStartDepth = state.subqueryDepth;
+        }
+        
+        // Exit compact query mode when:
+        // 1. We exit the subquery that started it (subqueryDepth drops)
+        // 2. For main queries (depth 0): hit semicolon or new SELECT clause start
+        if (state.inCompactQuery) {
+            if (state.subqueryDepth < state.compactQueryStartDepth) {
+                // Exited the subquery
+                state.inCompactQuery = false;
+                state.compactQueryStartDepth = -1;
+            } else if (state.compactQueryStartDepth === 0 && text === ';') {
+                // Semicolon ends a main query
+                state.inCompactQuery = false;
+                state.compactQueryStartDepth = -1;
+            } else if (state.compactQueryStartDepth === 0 && 
+                       symbolicName === 'SELECT' && ctx.isClauseStart && !simpleQueryInfo) {
+                // New SELECT statement starts (this SELECT is not the one we marked)
+                state.inCompactQuery = false;
+                state.compactQueryStartDepth = -1;
+            }
+        }
         
         // Get multi-arg function info
         const multiArgFuncInfo = analysis.multiArgFunctionInfo.get(tokenIndex);
@@ -633,8 +670,8 @@ function determineNewlineAndIndent(
         indent = baseIndent;
     }
     
-    // Clause start newline
-    if (!state.isFirstNonWsToken && ctx.isClauseStart && !ctx.isInIdentifierContext) {
+    // Clause start newline - SKIP if inside a compact query
+    if (!state.isFirstNonWsToken && ctx.isClauseStart && !ctx.isInIdentifierContext && !state.inCompactQuery) {
         needsNewline = true;
         indent = baseIndent;
     }

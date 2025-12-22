@@ -9,7 +9,7 @@ export const basicSelectTests: TestSuite = {
         {
             name: 'Single-item SELECT (inline)',
             input: 'select a from t',
-            expected: 'SELECT a\nFROM t',
+            expected: 'SELECT a FROM t', // Simple query stays on one line
         },
         {
             name: 'Multi-item SELECT (multiline)',
@@ -29,12 +29,12 @@ export const basicSelectTests: TestSuite = {
         {
             name: 'Qualified star (t.*)',
             input: 'select t.* from t',
-            expected: 'SELECT t.*\nFROM t',
+            expected: 'SELECT t.* FROM t', // Simple query stays on one line
         },
         {
             name: 'LIMIT clause',
             input: 'select * from t limit 10',
-            expected: 'SELECT *\nFROM t\nLIMIT 10',
+            expected: 'SELECT * FROM t LIMIT 10', // Simple query stays on one line
         },
         {
             name: 'Complex query with multiple clauses',

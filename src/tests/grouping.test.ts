@@ -1,5 +1,6 @@
 /**
  * GROUP BY, ORDER BY, HAVING Tests
+ * Note: Tests use multiple columns to avoid compact query mode
  */
 import { TestSuite } from './framework.js';
 
@@ -18,13 +19,13 @@ export const groupByTests: TestSuite = {
         },
         {
             name: 'Single-item ORDER BY (inline)',
-            input: 'select * from t order by x',
-            expected: 'SELECT *\nFROM t\nORDER BY x',
+            input: 'select a, b from t order by x',
+            expected: 'SELECT\n     a\n    ,b\nFROM t\nORDER BY x',
         },
         {
             name: 'Multi-item ORDER BY (multiline)',
-            input: 'select * from t order by x, y desc, z',
-            expected: 'SELECT *\nFROM t\nORDER BY\n     x\n    ,y DESC\n    ,z',
+            input: 'select a, b from t order by x, y desc, z',
+            expected: 'SELECT\n     a\n    ,b\nFROM t\nORDER BY\n     x\n    ,y DESC\n    ,z',
         },
         {
             name: 'GROUP BY and ORDER BY',

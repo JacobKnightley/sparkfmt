@@ -9,12 +9,12 @@ export const magicCommandsTests: TestSuite = {
         {
             name: '%%sql magic command on first line',
             input: '%%sql\nselect * from table1',
-            expected: '%%sql\nSELECT *\nFROM table1'
+            expected: '%%sql\nSELECT * FROM table1'
         },
         {
             name: '%sql magic command on first line',
             input: '%sql\nselect * from table1',
-            expected: '%sql\nSELECT *\nFROM table1'
+            expected: '%sql\nSELECT * FROM table1'
         },
         {
             name: '%%sql with complex query',
@@ -29,7 +29,7 @@ export const magicCommandsTests: TestSuite = {
         {
             name: 'No magic command - should not affect normal SQL',
             input: 'select * from table1',
-            expected: 'SELECT *\nFROM table1'
+            expected: 'SELECT * FROM table1'
         },
         {
             name: 'Magic command with leading whitespace should be ignored',

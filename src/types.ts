@@ -29,6 +29,19 @@ export interface WindowDefInfo {
 }
 
 /**
+ * Information about a simple query that can stay compact (on one line).
+ * A query is simple if it has single-item clauses and fits within line width.
+ */
+export interface SimpleQueryInfo {
+    /** Token index of the SELECT keyword */
+    selectTokenIndex: number;
+    /** Total span length of the entire query */
+    spanLength: number;
+    /** Subquery depth (0 = main query) */
+    depth: number;
+}
+
+/**
  * Complete result from ParseTreeAnalyzer.
  * Contains all token positions that need special handling during formatting.
  */
@@ -103,6 +116,9 @@ export interface AnalyzerResult {
     
     // Window definition expansion
     windowDefInfo: Map<number, WindowDefInfo>;
+    
+    // Simple query compaction
+    simpleQueries: Map<number, SimpleQueryInfo>;
 }
 
 // ============================================================================
@@ -155,6 +171,11 @@ export interface FormattingState {
     
     // Window expansion state
     justOutputWindowNewline: boolean;
+    
+    // Simple query compaction state
+    inCompactQuery: boolean;
+    /** Subquery depth when we entered compact query mode */
+    compactQueryStartDepth: number;
 }
 
 /**

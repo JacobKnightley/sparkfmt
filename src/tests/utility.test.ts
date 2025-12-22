@@ -24,7 +24,7 @@ export const utilityTests: TestSuite = {
         {
             name: 'EXPLAIN query',
             input: 'explain select x from t',
-            expected: 'EXPLAIN\nSELECT x\nFROM t',
+            expected: 'EXPLAIN SELECT x FROM t',
         },
         {
             name: 'CACHE TABLE',

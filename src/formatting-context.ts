@@ -67,6 +67,10 @@ export function createInitialState(): FormattingState {
         
         // Window expansion
         justOutputWindowNewline: false,
+        
+        // Simple query compaction
+        inCompactQuery: false,
+        compactQueryStartDepth: -1
     };
 }
 

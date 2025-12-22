@@ -19,7 +19,7 @@ export const sparkFeaturesTests: TestSuite = {
         {
             name: 'PIVOT',
             input: 'select * from t pivot (sum(val) for col in (1, 2, 3))',
-            expected: 'SELECT *\nFROM t PIVOT (SUM(val) FOR col IN (1, 2, 3))',
+            expected: 'SELECT * FROM t PIVOT (SUM(val) FOR col IN (1, 2, 3))',
         },
         {
             name: 'CLUSTER BY',
@@ -34,7 +34,7 @@ export const sparkFeaturesTests: TestSuite = {
         {
             name: 'TABLESAMPLE',
             input: 'select * from t tablesample (10 percent)',
-            expected: 'SELECT *\nFROM t TABLESAMPLE (10 PERCENT)',
+            expected: 'SELECT * FROM t TABLESAMPLE (10 PERCENT)',
         },
     ],
 };
@@ -45,7 +45,7 @@ export const windowFunctionTests: TestSuite = {
         {
             name: 'Short window spec stays inline',
             input: 'select row_number() over (partition by a order by b) from t',
-            expected: 'SELECT ROW_NUMBER() OVER (PARTITION BY a ORDER BY b)\nFROM t',
+            expected: 'SELECT ROW_NUMBER() OVER (PARTITION BY a ORDER BY b) FROM t',
         },
         {
             name: 'Window stays inline when line under 140 chars',
@@ -60,12 +60,12 @@ export const windowFunctionTests: TestSuite = {
         {
             name: 'Window with frame clause stays inline under 140',
             input: 'select sum(amount) over (partition by customer_id order by transaction_date rows between unbounded preceding and current row) from t',
-            expected: 'SELECT SUM(amount) OVER (PARTITION BY customer_id ORDER BY transaction_date ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)\nFROM t',
+            expected: 'SELECT SUM(amount) OVER (PARTITION BY customer_id ORDER BY transaction_date ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) FROM t',
         },
         {
             name: 'Window in CTE stays inline when under 140',
             input: 'with cte as (select lead(x) over (partition by very_long_name_a, very_long_name_b, very_long_name_c order by sort_col) from t) select * from cte',
-            expected: 'WITH cte AS (\n    SELECT LEAD(x) OVER (PARTITION BY very_long_name_a, very_long_name_b, very_long_name_c ORDER BY sort_col)\n    FROM t\n)\nSELECT *\nFROM cte',
+            expected: 'WITH cte AS (\n    SELECT LEAD(x) OVER (PARTITION BY very_long_name_a, very_long_name_b, very_long_name_c ORDER BY sort_col)\n    FROM t\n) SELECT * FROM cte',
         },
     ],
 };
@@ -106,12 +106,12 @@ export const pivotFormattingTests: TestSuite = {
         {
             name: 'PIVOT with single aggregate',
             input: 'select * from t pivot (sum(x) for col in (\'a\', \'b\'))',
-            expected: 'SELECT *\nFROM t PIVOT (SUM(x) FOR col IN (\'a\', \'b\'))',
+            expected: 'SELECT * FROM t PIVOT (SUM(x) FOR col IN (\'a\', \'b\'))',
         },
         {
             name: 'PIVOT with multiple aggregates should not split',
             input: 'select * from t pivot (sum(x) as s, avg(y) as a for col in (\'a\', \'b\'))',
-            expected: 'SELECT *\nFROM t PIVOT (SUM(x) AS s, AVG(y) AS a FOR col IN (\'a\', \'b\'))',
+            expected: 'SELECT * FROM t PIVOT (SUM(x) AS s, AVG(y) AS a FOR col IN (\'a\', \'b\'))',
         },
     ],
 };
@@ -123,7 +123,7 @@ export const unpivotFormattingTests: TestSuite = {
         {
             name: 'UNPIVOT AS should be uppercase',
             input: 'select * from t unpivot (val for col in (a as col_a, b as col_b))',
-            expected: 'SELECT *\nFROM t UNPIVOT (val FOR col IN (a AS col_a, b AS col_b))',
+            expected: 'SELECT * FROM t UNPIVOT (val FOR col IN (a AS col_a, b AS col_b))',
         },
     ],
 };

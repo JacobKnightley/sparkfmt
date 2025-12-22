@@ -43,13 +43,13 @@ export const casingTests: TestSuite = {
         },
         {
             name: 'Nested functions',
-            input: 'select upper(lower(trim(x))) from t',
-            expected: 'SELECT UPPER(LOWER(TRIM(x)))\nFROM t',
+            input: 'select upper(lower(trim(x))), y from t',
+            expected: 'SELECT\n     UPPER(LOWER(TRIM(x)))\n    ,y\nFROM t',
         },
         {
             name: 'COALESCE',
-            input: 'select coalesce(a, b, c) from t',
-            expected: 'SELECT COALESCE(a, b, c)\nFROM t',
+            input: 'select coalesce(a, b, c), d from t',
+            expected: 'SELECT\n     COALESCE(a, b, c)\n    ,d\nFROM t',
         },
     ],
 };
@@ -59,13 +59,13 @@ export const aliasTests: TestSuite = {
     tests: [
         {
             name: 'Column alias gets AS keyword',
-            input: 'select count(*) cnt from t',
-            expected: 'SELECT COUNT(*) AS cnt\nFROM t',
+            input: 'select count(*) cnt, x from t',
+            expected: 'SELECT\n     COUNT(*) AS cnt\n    ,x\nFROM t',
         },
         {
             name: 'Existing AS preserved',
-            input: 'select count(*) as cnt from t',
-            expected: 'SELECT COUNT(*) AS cnt\nFROM t',
+            input: 'select count(*) as cnt, x from t',
+            expected: 'SELECT\n     COUNT(*) AS cnt\n    ,x\nFROM t',
         },
         {
             name: 'Multiple aliases',
