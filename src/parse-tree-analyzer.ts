@@ -210,6 +210,45 @@ export class ParseTreeAnalyzer extends SqlBaseParserVisitor {
         return this.visitChildren(ctx);
     }
     
+    /**
+     * Visit qualified name (e.g., table.column, db.schema.table.column)
+     * GRAMMAR-DRIVEN: qualifiedName : identifier (DOT identifier)*
+     * 
+     * Context-sensitive keyword handling: In qualified names, even tokens that are
+     * keywords (like USER, TABLE) should be treated as identifiers and preserve casing.
+     * This is because the grammar context (qualifiedName rule) makes them identifiers.
+     */
+    visitQualifiedName(ctx: any): any {
+        // Mark all tokens in the qualified name as identifiers, except DOT tokens
+        if (ctx.start && ctx.stop) {
+            for (let i = ctx.start.tokenIndex; i <= ctx.stop.tokenIndex; i++) {
+                this.identifierTokens.add(i);
+            }
+        }
+        // Still visit children to handle nested contexts
+        return this.visitChildren(ctx);
+    }
+    
+    /**
+     * Visit dereference (field access like user.address, table.column)
+     * GRAMMAR-DRIVEN: base=primaryExpression DOT fieldName=identifier
+     * 
+     * When a keyword like USER or TABLE appears before DOT, it should be treated
+     * as an identifier (table/column alias), not as a keyword.
+     */
+    visitDereference(ctx: any): any {
+        // Mark the base token as an identifier when it's being dereferenced
+        // This handles cases like: user.address where USER is a keyword but should be preserved
+        if (ctx.base && ctx.base.start) {
+            // Mark the base expression tokens as identifiers
+            for (let i = ctx.base.start.tokenIndex; i <= (ctx.base.stop?.tokenIndex ?? ctx.base.start.tokenIndex); i++) {
+                this.identifierTokens.add(i);
+            }
+        }
+        // The fieldName will be handled by visitIdentifier
+        return this.visitChildren(ctx);
+    }
+    
     // ========== FUNCTION CALL CONTEXTS ==========
     
     visitFunctionCall(ctx: any): any {
