@@ -151,6 +151,7 @@ export function shouldSkipSpace(
         justOutputCommaFirstStyle: boolean;
         justOutputMultiArgFunctionNewline: boolean;
         justOutputWindowNewline: boolean;
+        justOutputInListWrapNewline: boolean;
         afterWhereKeyword: boolean;
         afterHavingKeyword: boolean;
         prevTokenWasUnaryOperator: boolean;
@@ -174,6 +175,7 @@ export function shouldSkipSpace(
         context.justOutputCommaFirstStyle ||
         context.justOutputMultiArgFunctionNewline ||
         context.justOutputWindowNewline ||
+        context.justOutputInListWrapNewline ||
         context.afterWhereKeyword || 
         context.afterHavingKeyword ||
         context.prevTokenWasUnaryOperator ||

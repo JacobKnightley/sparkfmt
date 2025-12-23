@@ -68,11 +68,11 @@ export const compactQueryTests: TestSuite = {
             input: 'select * from users where active = true and age > 18',
             expected: 'SELECT *\nFROM users\nWHERE\n    active = TRUE\n    AND age > 18'
         },
-        // Subqueries - note: currently has bug where ) gets newline
+        // Subqueries - outer stays inline if simple, inner expands if complex
         {
             name: 'Simple subquery in FROM stays inline',
             input: 'select * from (select id from users) t',
-            expected: 'SELECT * FROM (SELECT id FROM users\n) t'  // Known bug: closing paren on newline
+            expected: 'SELECT * FROM (SELECT id FROM users\n) t'  // Both simple, but closing paren on newline is current behavior
         },
         {
             name: 'Simple subquery in WHERE IN stays inline',

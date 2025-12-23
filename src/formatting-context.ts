@@ -16,7 +16,8 @@ import type {
     PendingComment,
     AnalyzerResult,
     MultiArgFunctionInfo,
-    WindowDefInfo
+    WindowDefInfo,
+    PivotInfo
 } from './types.js';
 import { SqlBaseLexer, getSymbolicName } from './token-utils.js';
 import { MAX_LINE_WIDTH } from './constants.js';
@@ -68,9 +69,16 @@ export function createInitialState(): FormattingState {
         // Window expansion
         justOutputWindowNewline: false,
         
-        // Simple query compaction
-        inCompactQuery: false,
-        compactQueryStartDepth: -1
+        // PIVOT/UNPIVOT expansion
+        justOutputPivotNewline: false,
+        
+        // IN list wrapping
+        inListContentStartColumn: null,
+        insideInList: false,
+        justOutputInListWrapNewline: false,
+        
+        // Simple query compaction - stack-based for nested queries
+        compactQueryStack: []
     };
 }
 
@@ -105,9 +113,20 @@ export class ExpandedFunctionStack {
         return current !== null && current.closeParenIndex === tokenIndex;
     }
     
+    /**
+     * Check if token is a comma that should trigger a newline.
+     * For STACK, some commas are skipped (pair grouping).
+     */
     isComma(tokenIndex: number): boolean {
         const current = this.current();
-        return current !== null && current.commaIndices.has(tokenIndex);
+        if (current === null || !current.commaIndices.has(tokenIndex)) {
+            return false;
+        }
+        // If this comma is in skipNewlineCommas, don't treat it as expanded comma
+        if (current.skipNewlineCommas?.has(tokenIndex)) {
+            return false;
+        }
+        return true;
     }
 }
 
@@ -216,10 +235,30 @@ export class IndentCalculator {
     }
     
     /**
-     * Get content indent for expanded multi-arg function.
-     * Content base = 8 + (depth * 4)
+     * Get indent for nested CASE content (after THEN CASE).
+     * Uses caseDepth to add extra indent for each nesting level.
+     */
+    getCaseContentIndent(subqueryDepth: number, ddlDepth: number = 0, caseDepth: number = 0): string {
+        const baseIndent = this.getBaseIndent(subqueryDepth, ddlDepth);
+        // Each case level adds 8 + 4 spaces (WHEN indent + one level)
+        const caseIndent = '            '.repeat(caseDepth);  // 12 spaces per case level
+        return baseIndent + caseIndent;
+    }
+    
+    /**
+     * Get content indent for expanded multi-arg function's FIRST argument.
+     * First arg indent = 8 + (depth * 4) + 1 (for comma-first alignment)
+     * The +1 ensures first arg aligns with subsequent ",arg" items
      */
     getExpandedFunctionContentIndent(depth: number): number {
+        return 8 + (depth * 4) + 1;
+    }
+    
+    /**
+     * Get comma indent for expanded multi-arg function (subsequent args).
+     * Comma indent = 8 + (depth * 4) (no +1, comma takes that position)
+     */
+    getExpandedFunctionCommaIndent(depth: number): number {
         return 8 + (depth * 4);
     }
     
@@ -245,6 +284,29 @@ export class IndentCalculator {
      */
     getWindowCloseIndent(baseDepth: number): number {
         return (baseDepth * 4) + 4;
+    }
+    
+    /**
+     * Get content indent for expanded PIVOT/UNPIVOT clause.
+     * PIVOT content = (baseDepth * 4) + 4
+     */
+    getPivotContentIndent(baseDepth: number): number {
+        return (baseDepth * 4) + 4;
+    }
+    
+    /**
+     * Get comma indent for expanded PIVOT/UNPIVOT clause.
+     * PIVOT comma = (baseDepth * 4) + 4 (same as content, comma-first style)
+     */
+    getPivotCommaIndent(baseDepth: number): number {
+        return (baseDepth * 4) + 4;
+    }
+    
+    /**
+     * Get close paren indent for expanded PIVOT/UNPIVOT clause.
+     */
+    getPivotCloseIndent(baseDepth: number): number {
+        return baseDepth * 4;
     }
 }
 
@@ -297,6 +359,16 @@ export function shouldExpandWindow(
     windowInfo: WindowDefInfo
 ): boolean {
     return currentColumn + windowInfo.spanLength > MAX_LINE_WIDTH;
+}
+
+/**
+ * Decides if a PIVOT/UNPIVOT clause should be expanded based on line width.
+ */
+export function shouldExpandPivot(
+    currentColumn: number,
+    pivotInfo: PivotInfo
+): boolean {
+    return currentColumn + pivotInfo.spanLength > MAX_LINE_WIDTH;
 }
 
 // Export singleton indent calculator

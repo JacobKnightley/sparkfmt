@@ -21,7 +21,7 @@ import SqlBaseParser from './generated/SqlBaseParser.js';
 import SqlBaseParserVisitor from './generated/SqlBaseParserVisitor.js';
 
 import { getTokenType } from './token-utils.js';
-import type { AnalyzerResult, MultiArgFunctionInfo, WindowDefInfo, SimpleQueryInfo } from './types.js';
+import type { AnalyzerResult, MultiArgFunctionInfo, WindowDefInfo, SimpleQueryInfo, PivotInfo, InListInfo } from './types.js';
 
 /**
  * Visitor that collects context information from parse tree.
@@ -101,6 +101,12 @@ export class ParseTreeAnalyzer extends SqlBaseParserVisitor {
     // Window definition expansion
     windowDefInfo: Map<number, WindowDefInfo> = new Map();
     
+    // PIVOT/UNPIVOT expansion
+    pivotInfo: Map<number, PivotInfo> = new Map();
+    
+    // IN list wrapping
+    inListInfo: Map<number, InListInfo> = new Map();
+    
     // Simple query compaction
     simpleQueries: Map<number, SimpleQueryInfo> = new Map();
     
@@ -151,6 +157,8 @@ export class ParseTreeAnalyzer extends SqlBaseParserVisitor {
             groupByAllTokens: this.groupByAllTokens,
             multiArgFunctionInfo: this.multiArgFunctionInfo,
             windowDefInfo: this.windowDefInfo,
+            pivotInfo: this.pivotInfo,
+            inListInfo: this.inListInfo,
             simpleQueries: this.simpleQueries,
         };
     }
@@ -274,7 +282,8 @@ export class ParseTreeAnalyzer extends SqlBaseParserVisitor {
                 this.multiArgFunctionInfo.set(leftParenTokenIndex, {
                     closeParenIndex: rightParenTokenIndex,
                     commaIndices: [],
-                    spanLength: spanLength
+                    spanLength: spanLength,
+                    functionName: 'CAST'
                 });
             }
         }
@@ -444,6 +453,18 @@ export class ParseTreeAnalyzer extends SqlBaseParserVisitor {
         return this.visitChildren(ctx);
     }
     
+    // ========== PIVOT/UNPIVOT CONTEXTS ==========
+    
+    visitPivotClause(ctx: any): any {
+        this._collectPivotInfo(ctx, false);
+        return this.visitChildren(ctx);
+    }
+    
+    visitUnpivotClause(ctx: any): any {
+        this._collectPivotInfo(ctx, true);
+        return this.visitChildren(ctx);
+    }
+    
     visitSetOperation(ctx: any): any {
         if (ctx.children) {
             let foundSetOperator = false;
@@ -552,6 +573,10 @@ export class ParseTreeAnalyzer extends SqlBaseParserVisitor {
                 this._markSubqueryParens(ctx);
             }
         }
+        
+        // Also collect IN list info for wrapping
+        this._collectInListInfo(ctx);
+        
         return this.visitChildren(ctx);
     }
     
@@ -677,6 +702,24 @@ export class ParseTreeAnalyzer extends SqlBaseParserVisitor {
     }
     
     /**
+     * Check if a context is inside a CREATE VIEW/TABLE statement at the top level.
+     * Queries inside these DDL statements should never be compacted.
+     */
+    private _isInsideCreateStatement(ctx: any): boolean {
+        let node = ctx?.parentCtx;
+        while (node) {
+            const className = node.constructor?.name || '';
+            // Check for CREATE VIEW variants
+            if (className === 'CreateViewContext' || 
+                className === 'CreateTempViewUsingContext') {
+                return true;
+            }
+            node = node.parentCtx;
+        }
+        return false;
+    }
+    
+    /**
      * Analyze if a query is simple enough to stay on one line.
      * Simple query criteria:
      * - SELECT has 1 item (including *, t.*)
@@ -684,9 +727,13 @@ export class ParseTreeAnalyzer extends SqlBaseParserVisitor {
      * - WHERE has 0 or 1 condition (no AND/OR at top level)
      * - No GROUP BY, ORDER BY, HAVING, or single-item versions
      * - No LIMIT/OFFSET or simple LIMIT
+     * - NOT inside a CREATE VIEW/TABLE statement (those always expand)
      */
     private _analyzeSimpleQuery(ctx: any, depth: number): void {
         if (!ctx || !ctx.children) return;
+        
+        // Never compact queries inside CREATE statements
+        if (depth === 0 && this._isInsideCreateStatement(ctx)) return;
         
         let selectClause: any = null;
         let fromClause: any = null;
@@ -713,6 +760,10 @@ export class ParseTreeAnalyzer extends SqlBaseParserVisitor {
                 fromClause = child;
                 // Check for JOINs in FROM clause
                 hasJoin = this._hasJoinInFromClause(child);
+                // Also check for PIVOT/UNPIVOT in FROM clause
+                if (this._hasPivotUnpivotInFromClause(child)) {
+                    hasJoin = true; // Treat PIVOT/UNPIVOT like a JOIN for simplicity
+                }
             } else if (className === 'WhereClauseContext' || ruleName === 'whereClause') {
                 whereClause = child;
             } else if (className === 'AggregationClauseContext' || ruleName === 'aggregationClause') {
@@ -776,6 +827,45 @@ export class ParseTreeAnalyzer extends SqlBaseParserVisitor {
         };
         
         return checkForJoin(fromClause);
+    }
+    
+    /**
+     * Check if FROM clause contains PIVOT or UNPIVOT with many items.
+     * Simple PIVOT with few items can stay compact.
+     */
+    private _hasPivotUnpivotInFromClause(fromClause: any): boolean {
+        if (!fromClause || !fromClause.children) return false;
+        
+        const checkForComplexPivot = (node: any): boolean => {
+            if (!node) return false;
+            
+            const className = node.constructor?.name || '';
+            if (className === 'PivotClauseContext' || className === 'UnpivotClauseContext') {
+                // Count commas to estimate complexity
+                let commaCount = 0;
+                const countCommas = (n: any): void => {
+                    if (!n) return;
+                    if (n.symbol && n.symbol.type === getTokenType('COMMA')) {
+                        commaCount++;
+                    }
+                    if (n.children) {
+                        for (const c of n.children) countCommas(c);
+                    }
+                };
+                countCommas(node);
+                // If more than ~6 commas, it's complex (multiple aggregates + many IN items)
+                return commaCount > 6;
+            }
+            
+            if (node.children) {
+                for (const child of node.children) {
+                    if (checkForComplexPivot(child)) return true;
+                }
+            }
+            return false;
+        };
+        
+        return checkForComplexPivot(fromClause);
     }
     
     /**
@@ -861,6 +951,15 @@ export class ParseTreeAnalyzer extends SqlBaseParserVisitor {
         let rightParenTokenIndex: number | null = null;
         const commaTokenIndices: number[] = [];
         
+        // Try to get function name from functionName child
+        let functionName: string | undefined;
+        if (ctx.functionName) {
+            const fnCtx = ctx.functionName();
+            if (fnCtx && fnCtx.getText) {
+                functionName = fnCtx.getText().toUpperCase();
+            }
+        }
+        
         for (const child of ctx.children) {
             if (child.symbol) {
                 const symName = SqlBaseLexer.symbolicNames[child.symbol.type];
@@ -881,7 +980,8 @@ export class ParseTreeAnalyzer extends SqlBaseParserVisitor {
             this.multiArgFunctionInfo.set(leftParenTokenIndex, {
                 closeParenIndex: rightParenTokenIndex,
                 commaIndices: commaTokenIndices,
-                spanLength: spanLength
+                spanLength: spanLength,
+                functionName: functionName
             });
         }
     }
@@ -920,6 +1020,204 @@ export class ParseTreeAnalyzer extends SqlBaseParserVisitor {
                 windowFrameTokenIndex: windowFrameTokenIndex,
                 spanLength: spanLength
             });
+        }
+    }
+    
+    /**
+     * Collect IN list information for potential wrapping.
+     * Structure: expr IN (value1, value2, value3, ...)
+     * We want to track the IN list so we can wrap it at max line width.
+     */
+    private _collectInListInfo(ctx: any): void {
+        if (!ctx.children) return;
+        
+        // Check if this is an IN predicate (kind=IN)
+        let isInPredicate = false;
+        let inKeywordIndex: number | null = null;
+        
+        for (const child of ctx.children) {
+            if (child.symbol) {
+                const symName = SqlBaseLexer.symbolicNames[child.symbol.type];
+                if (symName === 'IN') {
+                    isInPredicate = true;
+                    inKeywordIndex = child.symbol.tokenIndex;
+                    break;
+                }
+            }
+        }
+        
+        if (!isInPredicate || inKeywordIndex === null) return;
+        
+        // Check if there's a subquery inside - if so, don't treat as IN list
+        // Subquery IN: IN (SELECT ...)
+        let hasSubquery = false;
+        for (const child of ctx.children) {
+            if (child.ruleIndex !== undefined) {
+                const ruleName = SqlBaseParser.ruleNames[child.ruleIndex];
+                if (ruleName === 'query') {
+                    hasSubquery = true;
+                    break;
+                }
+            }
+        }
+        
+        if (hasSubquery) return;  // Don't track IN (SELECT ...) as an IN list
+        
+        // Now find the open paren, close paren, and commas using recursive walk
+        let openParenIndex: number | null = null;
+        let closeParenIndex: number | null = null;
+        const commaIndices: number[] = [];
+        let depth = 0;
+        let foundOpenParen = false;
+        
+        const walkForTokens = (node: any): void => {
+            if (!node) return;
+            
+            if (node.symbol) {
+                const symName = SqlBaseLexer.symbolicNames[node.symbol.type];
+                const tokenIndex = node.symbol.tokenIndex;
+                
+                if (tokenIndex <= inKeywordIndex!) return;  // Skip tokens before/at IN
+                
+                if (symName === 'LEFT_PAREN') {
+                    if (!foundOpenParen) {
+                        openParenIndex = tokenIndex;
+                        foundOpenParen = true;
+                    } else {
+                        depth++;
+                    }
+                } else if (symName === 'RIGHT_PAREN') {
+                    if (depth > 0) {
+                        depth--;
+                    } else if (foundOpenParen && closeParenIndex === null) {
+                        closeParenIndex = tokenIndex;
+                        return;  // Found the closing paren, stop
+                    }
+                } else if (symName === 'COMMA' && depth === 0 && foundOpenParen) {
+                    commaIndices.push(tokenIndex);
+                }
+            }
+            
+            if (node.children) {
+                for (const child of node.children) {
+                    if (closeParenIndex !== null) return;  // Stop if we found close paren
+                    walkForTokens(child);
+                }
+            }
+        };
+        
+        walkForTokens(ctx);
+        
+        if (openParenIndex !== null && closeParenIndex !== null) {
+            this.inListInfo.set(openParenIndex, {
+                openParenIndex,
+                closeParenIndex,
+                commaIndices,
+                isInPivot: false,  // WHERE IN, not PIVOT IN
+            });
+        }
+    }
+    
+    /**
+     * Collect PIVOT/UNPIVOT clause information for potential expansion.
+     * Structure: PIVOT (aggregates FOR column IN (values))
+     */
+    private _collectPivotInfo(ctx: any, isUnpivot: boolean): void {
+        if (!ctx.children) return;
+        
+        let openParenIndex: number | null = null;
+        let closeParenIndex: number | null = null;
+        let forKeywordIndex: number | null = null;
+        let inKeywordIndex: number | null = null;
+        let inListOpenParen: number | null = null;
+        const aggregateCommaIndices: number[] = [];
+        const inListCommaIndices: number[] = [];
+        
+        let foundFor = false;
+        let foundIn = false;
+        let inListDepth = 0;  // Depth within IN list parens (0 = top level of IN list)
+        
+        // Walk through children to find structure
+        const walkForTokens = (node: any): void => {
+            if (!node) return;
+            
+            if (node.symbol) {
+                const symName = SqlBaseLexer.symbolicNames[node.symbol.type];
+                const tokenIndex = node.symbol.tokenIndex;
+                
+                if (symName === 'LEFT_PAREN') {
+                    if (openParenIndex === null) {
+                        // First paren is the PIVOT open paren
+                        openParenIndex = tokenIndex;
+                    } else if (foundIn && inListOpenParen === null) {
+                        // First paren after IN is the IN list open paren
+                        inListOpenParen = tokenIndex;
+                    } else if (foundIn) {
+                        // Nested paren within IN list items
+                        inListDepth++;
+                    }
+                } else if (symName === 'RIGHT_PAREN') {
+                    if (foundIn && inListDepth > 0) {
+                        // Closing a nested paren within IN list
+                        inListDepth--;
+                    } else if (foundIn && inListOpenParen !== null) {
+                        // Closing the IN list paren - this is also close of PIVOT
+                        closeParenIndex = tokenIndex;
+                    } else {
+                        // Outer PIVOT close paren
+                        closeParenIndex = tokenIndex;
+                    }
+                } else if (symName === 'FOR') {
+                    foundFor = true;
+                    forKeywordIndex = tokenIndex;
+                } else if (symName === 'IN') {
+                    foundIn = true;
+                    inKeywordIndex = tokenIndex;
+                } else if (symName === 'COMMA') {
+                    if (foundIn && inListOpenParen !== null && inListDepth === 0) {
+                        // Comma in IN list at top level
+                        inListCommaIndices.push(tokenIndex);
+                    } else if (!foundFor) {
+                        // Comma before FOR - aggregate list
+                        aggregateCommaIndices.push(tokenIndex);
+                    }
+                }
+            }
+            
+            if (node.children) {
+                for (const child of node.children) {
+                    walkForTokens(child);
+                }
+            }
+        };
+        
+        walkForTokens(ctx);
+        
+        if (openParenIndex !== null && closeParenIndex !== null) {
+            const spanLength = this._calculateSpanLength(ctx);
+            this.pivotInfo.set(openParenIndex, {
+                openParenIndex,
+                closeParenIndex,
+                aggregateCommaIndices,
+                forKeywordIndex,
+                inKeywordIndex,
+                inListCommaIndices,
+                spanLength,
+                isUnpivot
+            });
+            
+            // Also store the PIVOT IN list in inListInfo for consistent wrapping
+            if (inListOpenParen !== null) {
+                // Find the IN list close paren (it's one before the PIVOT close paren)
+                // We need to find the actual IN list close paren
+                let inListCloseParen = closeParenIndex;  // Default to same as PIVOT close
+                this.inListInfo.set(inListOpenParen, {
+                    openParenIndex: inListOpenParen,
+                    closeParenIndex: inListCloseParen,
+                    commaIndices: inListCommaIndices,
+                    isInPivot: true,
+                });
+            }
         }
     }
     

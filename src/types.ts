@@ -16,6 +16,7 @@ export interface MultiArgFunctionInfo {
     closeParenIndex: number;
     commaIndices: number[];
     spanLength: number;
+    functionName?: string;  // For special handling (e.g., STACK pairs)
 }
 
 /**
@@ -26,6 +27,42 @@ export interface WindowDefInfo {
     orderByTokenIndex: number | null;
     windowFrameTokenIndex: number | null;
     spanLength: number;
+}
+
+/**
+ * Information about a PIVOT/UNPIVOT clause that may need expansion.
+ */
+export interface PivotInfo {
+    /** Opening LEFT_PAREN token index */
+    openParenIndex: number;
+    /** Closing RIGHT_PAREN token index */
+    closeParenIndex: number;
+    /** Comma indices in the aggregates list (before FOR) */
+    aggregateCommaIndices: number[];
+    /** FOR keyword token index */
+    forKeywordIndex: number | null;
+    /** IN keyword token index */
+    inKeywordIndex: number | null;
+    /** Comma indices in the IN list */
+    inListCommaIndices: number[];
+    /** Total span length for line width calculation */
+    spanLength: number;
+    /** Whether this is UNPIVOT (vs PIVOT) */
+    isUnpivot: boolean;
+}
+
+/**
+ * Information about an IN list (WHERE IN or PIVOT IN) for wrapping.
+ */
+export interface InListInfo {
+    /** Opening LEFT_PAREN token index (after IN keyword) */
+    openParenIndex: number;
+    /** Closing RIGHT_PAREN token index */
+    closeParenIndex: number;
+    /** Comma indices in the IN list */
+    commaIndices: number[];
+    /** Whether this is inside a PIVOT clause */
+    isInPivot: boolean;
 }
 
 /**
@@ -117,6 +154,12 @@ export interface AnalyzerResult {
     // Window definition expansion
     windowDefInfo: Map<number, WindowDefInfo>;
     
+    // PIVOT/UNPIVOT expansion
+    pivotInfo: Map<number, PivotInfo>;
+    
+    // IN list wrapping (WHERE IN and PIVOT IN)
+    inListInfo: Map<number, InListInfo>;
+    
     // Simple query compaction
     simpleQueries: Map<number, SimpleQueryInfo>;
 }
@@ -172,10 +215,20 @@ export interface FormattingState {
     // Window expansion state
     justOutputWindowNewline: boolean;
     
-    // Simple query compaction state
-    inCompactQuery: boolean;
-    /** Subquery depth when we entered compact query mode */
-    compactQueryStartDepth: number;
+    // PIVOT/UNPIVOT expansion state
+    justOutputPivotNewline: boolean;
+    
+    // IN list wrapping state
+    /** Current column where IN list content started (after open paren) */
+    inListContentStartColumn: number | null;
+    /** Whether we're currently inside an IN list */
+    insideInList: boolean;
+    /** Just output an IN list wrap newline - skip space before next token */
+    justOutputInListWrapNewline: boolean;
+    
+    // Simple query compaction state - stack-based for nested queries
+    /** Stack of compact query state per subquery level */
+    compactQueryStack: Array<{ isCompact: boolean; depth: number }>;
 }
 
 /**
@@ -187,6 +240,9 @@ export interface ExpandedFunction {
     depth: number;
     openingColumn: number;
     firstArgIsChainedFunc: boolean;
+    functionName?: string;  // For special handling (e.g., STACK pairs)
+    /** For STACK: indices of commas that should NOT get newlines (every other comma) */
+    skipNewlineCommas?: Set<number>;
 }
 
 /**
@@ -197,6 +253,25 @@ export interface ExpandedWindow {
     orderByTokenIndex: number | null;
     windowFrameTokenIndex: number | null;
     baseDepth: number;
+}
+
+/**
+ * Represents an expanded PIVOT/UNPIVOT clause.
+ */
+export interface ExpandedPivot {
+    closeParenIndex: number;
+    /** Commas in aggregate list */
+    aggregateCommaIndices: Set<number>;
+    /** FOR keyword index */
+    forKeywordIndex: number | null;
+    /** IN keyword index */
+    inKeywordIndex: number | null;
+    /** Commas in IN list */
+    inListCommaIndices: Set<number>;
+    /** Depth for indentation */
+    depth: number;
+    /** Column where PIVOT started */
+    openingColumn: number;
 }
 
 /**

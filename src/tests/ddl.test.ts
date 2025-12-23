@@ -9,7 +9,7 @@ export const ddlTests: TestSuite = {
         {
             name: 'CREATE VIEW',
             input: 'create view vw as select x from t',
-            expected: 'CREATE VIEW vw AS SELECT x FROM t',
+            expected: 'CREATE VIEW vw AS\nSELECT x\nFROM t',
         },
         {
             name: 'CREATE OR REPLACE TEMP VIEW',

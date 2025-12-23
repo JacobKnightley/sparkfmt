@@ -17,12 +17,13 @@ import { caseExpressionTests, castTests, literalTests, unaryOperatorTests, array
 import { commentTests, hintTests } from './comments.test.js';
 import { ddlTests } from './ddl.test.js';
 import { dmlTests } from './dml.test.js';
-import { sparkFeaturesTests, windowFunctionTests, lambdaTests, pivotFormattingTests, unpivotFormattingTests, lateralViewFormattingTests } from './spark-features.test.js';
+import { sparkFeaturesTests, windowFunctionTests, lambdaTests, pivotFormattingTests, unpivotFormattingTests, lateralViewFormattingTests, stackFormattingTests } from './spark-features.test.js';
 import { utilityTests } from './utility.test.js';
 import { magicCommandsTests } from './magic-commands.test.js';
 import { semicolonTests } from './semicolon.test.js';
 import { noqaStatementTests, noqaExpansionTests } from './noqa.test.js';
 import { compactQueryTests } from './compact-query.test.js';
+import { magicSqlSuite, runMagicSqlSuite } from './magic-sql.test.js';
 
 // All test suites in order
 const allSuites = [
@@ -52,6 +53,7 @@ const allSuites = [
     pivotFormattingTests,
     unpivotFormattingTests,
     lateralViewFormattingTests,
+    stackFormattingTests,
     utilityTests,
     magicCommandsTests,
     semicolonTests,
@@ -73,6 +75,17 @@ function main(): void {
         results.push(result);
         printSuiteResult(result, verbose);
     }
+
+    // Run magic SQL suite with its custom runner
+    const magicResult = runMagicSqlSuite();
+    const magicSuiteResult: SuiteResult = {
+        suiteName: magicSqlSuite.name,
+        passed: magicResult.passed,
+        failed: magicResult.failed,
+        results: magicResult.results,
+    };
+    results.push(magicSuiteResult);
+    printSuiteResult(magicSuiteResult, verbose);
 
     const { totalPassed, totalFailed } = printSummary(results);
 

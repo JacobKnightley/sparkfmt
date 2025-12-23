@@ -122,22 +122,22 @@ export const nestedFunctionTests: TestSuite = {
         {
             name: 'Long multi-arg function expands when line exceeds 140 chars',
             input: 'select coalesce(upper(very_long_column_name_one), lower(very_long_column_name_two), trim(another_very_long_column_name_three), concat(col_four, col_five)), x from t',
-            expected: 'SELECT\n     COALESCE(\n        UPPER(very_long_column_name_one)\n        ,LOWER(very_long_column_name_two)\n        ,TRIM(another_very_long_column_name_three)\n        ,CONCAT(col_four, col_five)\n    )\n    ,x\nFROM t',
+            expected: 'SELECT\n     COALESCE(\n         UPPER(very_long_column_name_one)\n        ,LOWER(very_long_column_name_two)\n        ,TRIM(another_very_long_column_name_three)\n        ,CONCAT(col_four, col_five)\n    )\n    ,x\nFROM t',
         },
         {
             name: 'Deeply nested functions expand based on line position',
             input: 'select conv(right(md5(upper(concat(coalesce(VeryLongTable.VeryLongColumnName, AnotherLongAlias.AnotherLongColumn), SomeOtherReallyLongColumnName))), 16), 16, -10), x from t',
-            expected: 'SELECT\n     CONV(\n        RIGHT(\n            MD5(UPPER(CONCAT(\n                COALESCE(VeryLongTable.VeryLongColumnName, AnotherLongAlias.AnotherLongColumn)\n                ,SomeOtherReallyLongColumnName\n            )))\n            ,16\n        )\n        ,16\n        ,-10\n    )\n    ,x\nFROM t',
+            expected: 'SELECT\n     CONV(\n         RIGHT(\n             MD5(UPPER(CONCAT(\n                 COALESCE(VeryLongTable.VeryLongColumnName, AnotherLongAlias.AnotherLongColumn)\n                ,SomeOtherReallyLongColumnName\n            )))\n            ,16\n        )\n        ,16\n        ,-10\n    )\n    ,x\nFROM t',
         },
         {
             name: 'Chained function opens with proper closing paren alignment',
             input: 'select cast(conv(right(md5(if(lower(some_environment_column) in (\'dxt\', \'daily\', \'msit\', \'prod\'), lower(some_environment_column), \'n/a\')), 16), 16, -10) as bigint), x from t',
-            expected: 'SELECT\n     CAST(\n        CONV(RIGHT(\n                MD5(IF(LOWER(some_environment_column) IN (\'dxt\', \'daily\', \'msit\', \'prod\'), LOWER(some_environment_column), \'n/a\'))\n                ,16\n            )\n            ,16\n            ,-10\n        ) AS BIGINT\n    )\n    ,x\nFROM t',
+            expected: 'SELECT\n     CAST(\n         CONV(RIGHT(\n                 MD5(IF(LOWER(some_environment_column) IN (\'dxt\', \'daily\', \'msit\', \'prod\'), LOWER(some_environment_column), \'n/a\'))\n                ,16\n            )\n            ,16\n            ,-10\n        ) AS BIGINT\n    )\n    ,x\nFROM t',
         },
         {
             name: 'Chained opens work with non-CAST outer function (COALESCE)',
             input: 'select coalesce(conv(right(md5(if(lower(some_environment_column) in (\'dxt\', \'daily\', \'msit\', \'prod\'), lower(some_environment_column), \'n/a\')), 16), 16, -10), some_really_long_default_value_here) as result, x from t',
-            expected: 'SELECT\n     COALESCE(\n        CONV(RIGHT(\n                MD5(IF(LOWER(some_environment_column) IN (\'dxt\', \'daily\', \'msit\', \'prod\'), LOWER(some_environment_column), \'n/a\'))\n                ,16\n            )\n            ,16\n            ,-10\n        )\n        ,some_really_long_default_value_here\n    ) AS result\n    ,x\nFROM t',
+            expected: 'SELECT\n     COALESCE(\n         CONV(RIGHT(\n                 MD5(IF(LOWER(some_environment_column) IN (\'dxt\', \'daily\', \'msit\', \'prod\'), LOWER(some_environment_column), \'n/a\'))\n                ,16\n            )\n            ,16\n            ,-10\n        )\n        ,some_really_long_default_value_here\n    ) AS result\n    ,x\nFROM t',
         },
         {
             name: 'Short NVL2 stays inline (under 140 chars)',

@@ -119,7 +119,7 @@ export const noqaExpansionTests: TestSuite = {
             name: 'Long COALESCE expands WITHOUT noqa',
             // This should expand because it exceeds line width
             input: 'SELECT COALESCE(very_long_column_name_a, very_long_column_name_b, very_long_column_name_c, very_long_column_name_d, very_long_column_name_e, very_long_column_name_f) FROM t',
-            expected: 'SELECT COALESCE(\n        very_long_column_name_a\n        ,very_long_column_name_b\n        ,very_long_column_name_c\n        ,very_long_column_name_d\n        ,very_long_column_name_e\n        ,very_long_column_name_f\n    )\nFROM t',
+            expected: 'SELECT COALESCE(\n         very_long_column_name_a\n        ,very_long_column_name_b\n        ,very_long_column_name_c\n        ,very_long_column_name_d\n        ,very_long_column_name_e\n        ,very_long_column_name_f\n    )\nFROM t',
         },
         {
             name: 'Long COALESCE stays inline WITH noqa:expansion',

@@ -53,6 +53,20 @@ export const whereTests: TestSuite = {
             expected: 'SELECT\n     x\n    ,y\nFROM t\nWHERE x IN (1, 2, 3)',
         },
         {
+            name: 'IN list wraps when exceeding line width',
+            // Query exceeds 140 chars total, so it expands (FROM/WHERE on own lines)
+            // After expansion, the WHERE line is 122 chars, under 140, so no IN list wrap needed
+            input: 'SELECT * FROM very_long_table_name WHERE long_column_name IN (value_one, value_two, value_three, value_four, value_five, value_six, value_seven, value_eight)',
+            expected: 'SELECT *\nFROM very_long_table_name\nWHERE long_column_name IN (value_one, value_two, value_three, value_four, value_five, value_six, value_seven, value_eight)',
+        },
+        {
+            name: 'IN list multiple wraps maintain alignment',
+            // Query exceeds 140 chars total, so it expands (FROM/WHERE on own lines)
+            // After expansion, the WHERE line exceeds 140 chars, so IN list wraps
+            input: 'SELECT * FROM very_long_table_name WHERE long_column_name IN (value_one, value_two, value_three, value_four, value_five, value_six, value_seven, value_eight, value_nine, value_ten, value_eleven, value_twelve, value_thirteen)',
+            expected: 'SELECT *\nFROM very_long_table_name\nWHERE long_column_name IN (value_one, value_two, value_three, value_four, value_five, value_six, value_seven, value_eight, value_nine,\n                           value_ten, value_eleven, value_twelve, value_thirteen)',
+        },
+        {
             name: 'RLIKE',
             input: 'select x, y from t where x rlike pattern',
             expected: 'SELECT\n     x\n    ,y\nFROM t\nWHERE x RLIKE pattern',

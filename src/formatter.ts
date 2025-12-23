@@ -34,7 +34,8 @@ import {
     indentCalc,
     isUnaryOperator,
     shouldExpandFunction,
-    shouldExpandWindow
+    shouldExpandWindow,
+    shouldExpandPivot
 } from './formatting-context.js';
 import { 
     OutputBuilder, 
@@ -46,7 +47,7 @@ import {
 import { SPARK_BUILTIN_FUNCTIONS } from './generated/builtinFunctions.js';
 import { MAX_LINE_WIDTH } from './constants.js';
 import { hasStatementNoqa, detectNoqaExpansion, type NoqaInfo } from './noqa-detector.js';
-import type { AnalyzerResult, ExpandedFunction, ExpandedWindow, PendingComment } from './types.js';
+import type { AnalyzerResult, ExpandedFunction, ExpandedWindow, ExpandedPivot, PendingComment, MultiArgFunctionInfo, PivotInfo, InListInfo } from './types.js';
 
 // ============================================================================
 // PUBLIC API
@@ -163,6 +164,52 @@ function splitOnSemicolons(sql: string): string[] {
 }
 
 // ============================================================================
+// VARIABLE SUBSTITUTION HANDLING
+// ============================================================================
+
+/**
+ * Spark SQL variable substitution pattern: ${variable_name}
+ * These must be preserved exactly during formatting.
+ */
+const VARIABLE_PATTERN = /\$\{([^}]+)\}/g;
+
+interface VariableSubstitution {
+    placeholder: string;
+    original: string;
+}
+
+/**
+ * Replace ${variable} patterns with safe placeholders before formatting.
+ * Returns the modified SQL and a map to restore later.
+ */
+function extractVariables(sql: string): { sql: string; substitutions: VariableSubstitution[] } {
+    const substitutions: VariableSubstitution[] = [];
+    let index = 0;
+    
+    const modifiedSql = sql.replace(VARIABLE_PATTERN, (match) => {
+        // Use a placeholder that won't be modified by formatting
+        // _SPARKVAR_N_ looks like an identifier and won't get spaces added
+        const placeholder = `_SPARKVAR_${index}_`;
+        substitutions.push({ placeholder, original: match });
+        index++;
+        return placeholder;
+    });
+    
+    return { sql: modifiedSql, substitutions };
+}
+
+/**
+ * Restore original ${variable} patterns after formatting.
+ */
+function restoreVariables(sql: string, substitutions: VariableSubstitution[]): string {
+    let result = sql;
+    for (const sub of substitutions) {
+        result = result.replace(sub.placeholder, sub.original);
+    }
+    return result;
+}
+
+// ============================================================================
 // SINGLE STATEMENT FORMATTING
 // ============================================================================
 
@@ -171,8 +218,11 @@ function splitOnSemicolons(sql: string): string[] {
  */
 function formatSingleStatement(sql: string): string {
     try {
+        // Extract ${variable} substitutions before formatting
+        const { sql: sqlWithPlaceholders, substitutions } = extractVariables(sql);
+        
         // Parse with uppercased SQL (grammar matches uppercase keywords)
-        const upperSql = sql.toUpperCase();
+        const upperSql = sqlWithPlaceholders.toUpperCase();
         const chars = new antlr4.InputStream(upperSql);
         const lexer = new SqlBaseLexer(chars);
         const tokens = new antlr4.CommonTokenStream(lexer);
@@ -194,17 +244,20 @@ function formatSingleStatement(sql: string): string {
         analyzer.visit(tree);
         const analysis = analyzer.getResult();
         
-        // Re-lex original SQL to get original token texts
-        const origChars = new antlr4.InputStream(sql);
+        // Re-lex original SQL (with placeholders) to get original token texts
+        const origChars = new antlr4.InputStream(sqlWithPlaceholders);
         const origLexer = new SqlBaseLexer(origChars);
         const origTokens = new antlr4.CommonTokenStream(origLexer);
         origTokens.fill();
         
         // Detect noqa:expansion directives
-        const noqaInfo = detectNoqaExpansion(sql);
+        const noqaInfo = detectNoqaExpansion(sqlWithPlaceholders);
         
         // Format tokens
-        return formatTokens(tokens.tokens, origTokens.tokens, analysis, noqaInfo);
+        const formatted = formatTokens(tokens.tokens, origTokens.tokens, analysis, noqaInfo);
+        
+        // Restore ${variable} substitutions
+        return restoreVariables(formatted, substitutions);
     } catch (e: any) {
         console.error('Formatter error:', e.message, e.stack);
         return sql;
@@ -226,7 +279,17 @@ function formatTokens(
     const comments = new CommentManager();
     
     let currentExpandedWindow: ExpandedWindow | null = null;
+    let currentExpandedPivot: ExpandedPivot | null = null;
     let lastProcessedIndex = -1;
+    
+    // IN list wrapping state
+    // Maps open paren index -> { wrapIndent, closeParenIndex, commaIndices }
+    interface ActiveInList {
+        wrapIndent: number;  // Column to wrap to (after open paren)
+        closeParenIndex: number;
+        commaIndices: Set<number>;
+    }
+    let activeInList: ActiveInList | null = null;
     
     // Track which simple queries are actually compact (fit within line width)
     const compactQueries = new Set<number>();
@@ -330,36 +393,37 @@ function formatTokens(
         // Get context from analysis
         const ctx = getTokenContext(tokenIndex, analysis);
         
-        // Compact query tracking: enter compact mode when we hit SELECT of a simple query
+        // Compact query tracking: each subquery level is evaluated independently
+        // When we hit a SELECT, check if THAT query is compact and push to stack
         const simpleQueryInfo = analysis.simpleQueries.get(tokenIndex);
-        if (simpleQueryInfo && symbolicName === 'SELECT') {
-            state.inCompactQuery = true;
-            state.compactQueryStartDepth = state.subqueryDepth;
+        if (symbolicName === 'SELECT' && ctx.isClauseStart) {
+            const isThisQueryCompact = compactQueries.has(tokenIndex);
+            // Push compact state for this query level
+            state.compactQueryStack.push({
+                isCompact: isThisQueryCompact,
+                depth: state.subqueryDepth
+            });
         }
         
-        // Exit compact query mode when:
-        // 1. We exit the subquery that started it (subqueryDepth drops)
-        // 2. For main queries (depth 0): hit semicolon or new SELECT clause start
-        if (state.inCompactQuery) {
-            if (state.subqueryDepth < state.compactQueryStartDepth) {
-                // Exited the subquery
-                state.inCompactQuery = false;
-                state.compactQueryStartDepth = -1;
-            } else if (state.compactQueryStartDepth === 0 && text === ';') {
-                // Semicolon ends a main query
-                state.inCompactQuery = false;
-                state.compactQueryStartDepth = -1;
-            } else if (state.compactQueryStartDepth === 0 && 
-                       symbolicName === 'SELECT' && ctx.isClauseStart && !simpleQueryInfo) {
-                // New SELECT statement starts (this SELECT is not the one we marked)
-                state.inCompactQuery = false;
-                state.compactQueryStartDepth = -1;
-            }
+        // Pop compact query state when we exit a subquery (depth decreases)
+        while (state.compactQueryStack.length > 0 && 
+               state.compactQueryStack[state.compactQueryStack.length - 1].depth > state.subqueryDepth) {
+            state.compactQueryStack.pop();
         }
+        
+        // Also pop on semicolon (statement end at depth 0)
+        if (text === ';' && state.subqueryDepth === 0 && state.compactQueryStack.length > 0) {
+            state.compactQueryStack.pop();
+        }
+        
+        // Current query is compact if the top of the stack says so
+        const inCompactQuery = state.compactQueryStack.length > 0 && 
+                               state.compactQueryStack[state.compactQueryStack.length - 1].isCompact;
         
         // Get multi-arg function info
         const multiArgFuncInfo = analysis.multiArgFunctionInfo.get(tokenIndex);
         const windowDefInfo = analysis.windowDefInfo.get(tokenIndex);
+        const pivotInfoLookup = analysis.pivotInfo.get(tokenIndex);
         
         // Check expanded function state
         const currentFunc = expandedFuncs.current();
@@ -370,6 +434,14 @@ function formatTokens(
         const isExpandedWindowOrderBy = currentExpandedWindow?.orderByTokenIndex === tokenIndex;
         const isExpandedWindowFrame = currentExpandedWindow?.windowFrameTokenIndex === tokenIndex;
         const isExpandedWindowCloseParen = currentExpandedWindow?.closeParenIndex === tokenIndex;
+        
+        // Check expanded pivot state
+        const isExpandedPivotAggregateComma = currentExpandedPivot?.aggregateCommaIndices.has(tokenIndex) ?? false;
+        const isExpandedPivotForKeyword = currentExpandedPivot?.forKeywordIndex === tokenIndex;
+        const isExpandedPivotInKeyword = currentExpandedPivot?.inKeywordIndex === tokenIndex;
+        // Don't use comma-first expansion for PIVOT IN lists - let IN list wrapping handle it
+        const isExpandedPivotInListComma = false;  // Disabled - use IN list wrapping instead
+        const isExpandedPivotCloseParen = currentExpandedPivot?.closeParenIndex === tokenIndex;
         
         // Detect unary operator
         const currentTokenIsUnaryOperator = isUnaryOperator(text, state.prevTokenText, state.prevTokenType);
@@ -393,6 +465,15 @@ function formatTokens(
         if (text === '(') state.insideParens++;
         else if (text === ')' && state.insideParens > 0) state.insideParens--;
         
+        // Track IN list wrapping - check if we're entering an IN list
+        const inListInfo = analysis.inListInfo.get(tokenIndex);
+        
+        // Check if we're exiting an IN list
+        if (activeInList && tokenIndex === activeInList.closeParenIndex) {
+            // Exiting the IN list
+            activeInList = null;
+        }
+        
         // Handle AS keyword insertion
         if (analysis.aliasInsertPositions.has(tokenIndex)) {
             builder.addSpaceIfNeeded();
@@ -402,9 +483,12 @@ function formatTokens(
         // Determine newlines and indent
         const { needsNewline, indent } = determineNewlineAndIndent(
             tokenIndex, text, symbolicName, ctx, analysis, state,
-            expandedFuncs, currentExpandedWindow,
+            expandedFuncs, currentExpandedWindow, currentExpandedPivot,
             isExpandedFunctionComma, isExpandedFunctionCloseParen,
-            isExpandedWindowOrderBy, isExpandedWindowFrame, isExpandedWindowCloseParen
+            isExpandedWindowOrderBy, isExpandedWindowFrame, isExpandedWindowCloseParen,
+            isExpandedPivotAggregateComma, isExpandedPivotForKeyword, isExpandedPivotInKeyword,
+            isExpandedPivotInListComma, isExpandedPivotCloseParen,
+            inCompactQuery
         );
         
         // Handle list commas - look ahead for comments
@@ -433,6 +517,45 @@ function formatTokens(
         }
         
         builder.push(outputText);
+        
+        // Handle IN list wrapping: after outputting a comma in an IN list,
+        // check if the next item would exceed line width
+        if (activeInList && activeInList.commaIndices.has(tokenIndex) && text === ',') {
+            // Look ahead to estimate the length of the next item
+            const nextItemLength = estimateNextInListItemLength(tokenList, i, findNextNonWsTokenIndex, activeInList.closeParenIndex);
+            const currentCol = builder.getColumn();
+            
+            // Add 1 for the space after comma
+            if (currentCol + 1 + nextItemLength > MAX_LINE_WIDTH) {
+                // Wrap to new line with indent
+                builder.push('\n' + ' '.repeat(activeInList.wrapIndent));
+                state.justOutputInListWrapNewline = true;
+            }
+        }
+        
+        // Activate IN list tracking AFTER we push the opening paren
+        if (inListInfo && text === '(') {
+            let wrapIndent = builder.getColumn();  // Column right after the (
+            
+            // If wrap indent exceeds 60% of line width, fall back to current indent + 4
+            const maxWrapIndent = Math.floor(MAX_LINE_WIDTH * 0.6);  // 84 chars
+            if (wrapIndent > maxWrapIndent) {
+                // Find current line's base indent (position of first non-space on this line)
+                // Since we just pushed '(', go back to find the line start indent
+                const currentOutput = builder.toString();
+                const lastNewline = currentOutput.lastIndexOf('\n');
+                const lineStart = lastNewline >= 0 ? currentOutput.slice(lastNewline + 1) : currentOutput;
+                const baseIndentMatch = lineStart.match(/^(\s*)/);
+                const baseIndent = baseIndentMatch ? baseIndentMatch[1].length : 0;
+                wrapIndent = baseIndent + 4;  // Fall back to base indent + 1 indent level
+            }
+            
+            activeInList = {
+                wrapIndent,
+                closeParenIndex: inListInfo.closeParenIndex,
+                commaIndices: new Set(inListInfo.commaIndices),
+            };
+        }
         
         // Handle multi-WHEN CASE newline after CASE
         if (analysis.multiWhenCaseTokens.has(tokenIndex)) {
@@ -474,6 +597,23 @@ function formatTokens(
             state.justOutputWindowNewline = true;
         }
         
+        // Handle PIVOT/UNPIVOT expansion
+        if (pivotInfoLookup && !expansionSuppressed && shouldExpandPivot(builder.getColumn(), pivotInfoLookup)) {
+            currentExpandedPivot = {
+                closeParenIndex: pivotInfoLookup.closeParenIndex,
+                aggregateCommaIndices: new Set(pivotInfoLookup.aggregateCommaIndices),
+                forKeywordIndex: pivotInfoLookup.forKeywordIndex,
+                inKeywordIndex: pivotInfoLookup.inKeywordIndex,
+                inListCommaIndices: new Set(pivotInfoLookup.inListCommaIndices),
+                depth: state.subqueryDepth,
+                openingColumn: builder.getColumn() - 1
+            };
+            // Output newline after opening paren
+            const pivotIndent = '\n' + ' '.repeat(indentCalc.getPivotContentIndent(state.subqueryDepth));
+            builder.push(pivotIndent);
+            state.justOutputPivotNewline = true;
+        }
+        
         // Pop expanded function on close paren
         if (isExpandedFunctionCloseParen && !expandedFuncs.isEmpty()) {
             expandedFuncs.pop();
@@ -484,12 +624,23 @@ function formatTokens(
             currentExpandedWindow = null;
         }
         
+        // Clear expanded pivot on close paren
+        if (isExpandedPivotCloseParen && currentExpandedPivot) {
+            currentExpandedPivot = null;
+        }
+        
         // Reset flags
         if (state.justOutputMultiArgFunctionNewline && text !== ',' && text !== '(') {
             state.justOutputMultiArgFunctionNewline = false;
         }
         if (state.justOutputWindowNewline && text !== '(' && text !== ',') {
             state.justOutputWindowNewline = false;
+        }
+        if (state.justOutputPivotNewline && text !== '(' && text !== ',') {
+            state.justOutputPivotNewline = false;
+        }
+        if (state.justOutputInListWrapNewline && text !== ',') {
+            state.justOutputInListWrapNewline = false;
         }
         if (state.justOutputCommaFirstStyle && text !== ',') {
             state.justOutputCommaFirstStyle = false;
@@ -523,6 +674,70 @@ function formatTokens(
 // ============================================================================
 // HELPER FUNCTIONS
 // ============================================================================
+
+/**
+ * Check if a token is a comma inside an IN list.
+ * Used to prevent IN list commas from being treated as regular list commas.
+ */
+function isInListComma(tokenIndex: number, analysis: AnalyzerResult): boolean {
+    for (const [, info] of analysis.inListInfo) {
+        if (info.commaIndices.includes(tokenIndex)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/**
+ * Estimate the length of the next item in an IN list.
+ * Looks ahead from the current comma to find the next comma or close paren.
+ */
+function estimateNextInListItemLength(
+    tokenList: any[],
+    currentIndex: number,
+    findNextNonWsTokenIndex: (idx: number) => number,
+    closeParenIndex: number
+): number {
+    let length = 0;
+    let idx = findNextNonWsTokenIndex(currentIndex + 1);
+    let depth = 0;
+    
+    while (idx >= 0 && idx < tokenList.length) {
+        const token = tokenList[idx];
+        const tokenIndex = token.tokenIndex;
+        const text = token.text || '';
+        const symName = SqlBaseLexer.symbolicNames[token.type];
+        
+        // Stop at the close paren of the IN list
+        if (tokenIndex === closeParenIndex) {
+            break;
+        }
+        
+        // Track nested parens
+        if (symName === 'LEFT_PAREN') {
+            depth++;
+            length += text.length;
+        } else if (symName === 'RIGHT_PAREN') {
+            if (depth > 0) {
+                depth--;
+                length += text.length;
+            } else {
+                break;  // Reached closing paren
+            }
+        } else if (symName === 'COMMA' && depth === 0) {
+            // Found the next comma at top level - this is the end of the item
+            break;
+        } else {
+            length += text.length;
+            // Add space between tokens (rough estimate)
+            length += 1;
+        }
+        
+        idx = findNextNonWsTokenIndex(idx + 1);
+    }
+    
+    return length;
+}
 
 /**
  * Extract token context from analysis result.
@@ -608,11 +823,18 @@ function determineNewlineAndIndent(
     state: ReturnType<typeof createInitialState>,
     expandedFuncs: ExpandedFunctionStack,
     currentExpandedWindow: ExpandedWindow | null,
+    currentExpandedPivot: ExpandedPivot | null,
     isExpandedFunctionComma: boolean,
     isExpandedFunctionCloseParen: boolean,
     isExpandedWindowOrderBy: boolean,
     isExpandedWindowFrame: boolean,
-    isExpandedWindowCloseParen: boolean
+    isExpandedWindowCloseParen: boolean,
+    isExpandedPivotAggregateComma: boolean,
+    isExpandedPivotForKeyword: boolean,
+    isExpandedPivotInKeyword: boolean,
+    isExpandedPivotInListComma: boolean,
+    isExpandedPivotCloseParen: boolean,
+    inCompactQuery: boolean
 ): { needsNewline: boolean; indent: string } {
     let needsNewline = false;
     let indent = '';
@@ -653,15 +875,30 @@ function determineNewlineAndIndent(
     }
     
     // CASE expression handling
+    // Nested multi-WHEN CASE after THEN should go to new line with extra indent
+    if (symbolicName === 'CASE' && analysis.multiWhenCaseTokens.has(tokenIndex) && state.prevTokenText === 'THEN') {
+        needsNewline = true;
+        // Nested CASE is indented 4 more than the current WHEN level
+        // caseDepth represents how many multi-WHEN CASEs we're inside (after their CASE keyword)
+        // So nested CASE indent = WHEN indent + 4 = base + 8 + (caseDepth-1)*4 + 4 = base + 8 + caseDepth*4
+        const nestingOffset = state.caseDepth * 4;
+        indent = indentCalc.getCaseWhenIndent(state.subqueryDepth, state.ddlDepth) + ' '.repeat(nestingOffset);
+    }
+    
     if (analysis.caseWhenTokens.has(tokenIndex)) {
         needsNewline = true;
-        indent = indentCalc.getCaseWhenIndent(state.subqueryDepth, state.ddlDepth);
+        // WHEN/ELSE indent = base + 8 + (caseDepth-1)*4 for caseDepth >= 1
+        const nestingOffset = state.caseDepth > 0 ? (state.caseDepth - 1) * 4 : 0;
+        indent = indentCalc.getCaseWhenIndent(state.subqueryDepth, state.ddlDepth) + ' '.repeat(nestingOffset);
     } else if (analysis.caseElseTokens.has(tokenIndex)) {
         needsNewline = true;
-        indent = indentCalc.getCaseWhenIndent(state.subqueryDepth, state.ddlDepth);
+        const nestingOffset = state.caseDepth > 0 ? (state.caseDepth - 1) * 4 : 0;
+        indent = indentCalc.getCaseWhenIndent(state.subqueryDepth, state.ddlDepth) + ' '.repeat(nestingOffset);
     } else if (analysis.caseEndTokens.has(tokenIndex)) {
         needsNewline = true;
-        indent = indentCalc.getCaseEndIndent(state.subqueryDepth, state.ddlDepth);
+        // END aligns with its CASE, which is 3 less than WHEN (getCaseEndIndent vs getCaseWhenIndent)
+        const nestingOffset = state.caseDepth > 0 ? (state.caseDepth - 1) * 4 : 0;
+        indent = indentCalc.getCaseEndIndent(state.subqueryDepth, state.ddlDepth) + ' '.repeat(nestingOffset);
     }
     
     // MERGE clause handling
@@ -671,7 +908,7 @@ function determineNewlineAndIndent(
     }
     
     // Clause start newline - SKIP if inside a compact query
-    if (!state.isFirstNonWsToken && ctx.isClauseStart && !ctx.isInIdentifierContext && !state.inCompactQuery) {
+    if (!state.isFirstNonWsToken && ctx.isClauseStart && !ctx.isInIdentifierContext && !inCompactQuery) {
         needsNewline = true;
         indent = baseIndent;
     }
@@ -714,8 +951,28 @@ function determineNewlineAndIndent(
         indent = ' '.repeat(indentCalc.getWindowCloseIndent(currentExpandedWindow.baseDepth));
     }
     
-    // List comma handling
-    if (ctx.isListComma && state.insideFunctionArgs === 0) {
+    // Expanded PIVOT/UNPIVOT handling
+    if (isExpandedPivotAggregateComma && currentExpandedPivot) {
+        needsNewline = true;
+        indent = ' '.repeat(indentCalc.getPivotCommaIndent(currentExpandedPivot.depth));
+        state.justOutputCommaFirstStyle = true;
+    }
+    if (isExpandedPivotForKeyword && currentExpandedPivot) {
+        needsNewline = true;
+        indent = ' '.repeat(indentCalc.getPivotContentIndent(currentExpandedPivot.depth));
+    }
+    if (isExpandedPivotInListComma && currentExpandedPivot) {
+        needsNewline = true;
+        indent = ' '.repeat(indentCalc.getPivotCommaIndent(currentExpandedPivot.depth) + 4);  // Extra indent for IN list
+        state.justOutputCommaFirstStyle = true;
+    }
+    if (isExpandedPivotCloseParen && currentExpandedPivot) {
+        needsNewline = true;
+        indent = ' '.repeat(indentCalc.getPivotCloseIndent(currentExpandedPivot.depth));
+    }
+    
+    // List comma handling - but NOT for IN list commas (those use wrap logic instead)
+    if (ctx.isListComma && state.insideFunctionArgs === 0 && !isInListComma(tokenIndex, analysis)) {
         needsNewline = true;
         indent = indentCalc.getCommaIndent(state.subqueryDepth, state.ddlDepth);
         state.isFirstListItem = false;
@@ -753,7 +1010,7 @@ function determineNewlineAndIndent(
     // Expanded function comma
     if (isExpandedFunctionComma && expandedFuncs.current()) {
         needsNewline = true;
-        indent = ' '.repeat(indentCalc.getExpandedFunctionContentIndent(expandedFuncs.current()!.depth));
+        indent = ' '.repeat(indentCalc.getExpandedFunctionCommaIndent(expandedFuncs.current()!.depth));
         state.justOutputCommaFirstStyle = true;
     }
     
@@ -873,6 +1130,7 @@ function outputWithoutNewline(
             justOutputCommaFirstStyle: state.justOutputCommaFirstStyle,
             justOutputMultiArgFunctionNewline: state.justOutputMultiArgFunctionNewline,
             justOutputWindowNewline: state.justOutputWindowNewline,
+            justOutputInListWrapNewline: state.justOutputInListWrapNewline,
             afterWhereKeyword: state.afterWhereKeyword,
             afterHavingKeyword: state.afterHavingKeyword,
             prevTokenWasUnaryOperator: state.prevTokenWasUnaryOperator && 
@@ -895,7 +1153,7 @@ function outputWithoutNewline(
 function handleFunctionExpansion(
     builder: OutputBuilder,
     expandedFuncs: ExpandedFunctionStack,
-    funcInfo: { closeParenIndex: number; commaIndices: number[]; spanLength: number },
+    funcInfo: MultiArgFunctionInfo,
     tokenList: any[],
     currentIndex: number,
     findNextNonWsTokenIndex: (idx: number) => number,
@@ -926,12 +1184,28 @@ function handleFunctionExpansion(
         }
     }
     
+    // For STACK function, calculate which commas should NOT get newlines (pair grouping)
+    // STACK format: STACK(count, alias1, col1, alias2, col2, ...)
+    // We want: count on its own, then pairs of (alias, col) on each line
+    // So after the first comma (after count), every ODD comma (1st, 3rd, 5th...) gets newline,
+    // every EVEN comma (2nd, 4th, 6th...) stays inline
+    let skipNewlineCommas: Set<number> | undefined;
+    if (funcInfo.functionName === 'STACK' && funcInfo.commaIndices.length >= 2) {
+        skipNewlineCommas = new Set<number>();
+        // Skip newline for commas at indices 1, 3, 5... (0-based, so 2nd, 4th, 6th commas)
+        for (let i = 1; i < funcInfo.commaIndices.length; i += 2) {
+            skipNewlineCommas.add(funcInfo.commaIndices[i]);
+        }
+    }
+    
     expandedFuncs.push({
         closeParenIndex: funcInfo.closeParenIndex,
         commaIndices: new Set(funcInfo.commaIndices),
         depth,
         openingColumn: builder.getColumn() - 1,
         firstArgIsChainedFunc,
+        functionName: funcInfo.functionName,
+        skipNewlineCommas,
     });
     
     if (!firstArgIsChainedFunc) {
