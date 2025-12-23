@@ -214,6 +214,21 @@ function restoreVariables(sql: string, substitutions: VariableSubstitution[]): s
 // ============================================================================
 
 /**
+ * Pre-normalize SQL to fix tokenization mismatches.
+ * Some SQL constructs tokenize differently based on case:
+ * - Scientific notation: 1.23e10 (lowercase 'e') vs 1.23E10 (uppercase 'E')
+ * 
+ * We normalize these to uppercase before lexing so both streams align.
+ */
+function normalizeForTokenization(sql: string): string {
+    // Normalize scientific notation: replace lowercase 'e' in numbers with uppercase 'E'
+    // Pattern: digit(s), optional decimal point and digit(s), 'e', optional +/-, digit(s)
+    return sql.replace(/(\d+\.?\d*)e([+-]?\d+)/gi, (match, mantissa, exponent) => {
+        return mantissa + 'E' + exponent;
+    });
+}
+
+/**
  * Format a single SQL statement.
  */
 function formatSingleStatement(sql: string): string {
@@ -221,8 +236,11 @@ function formatSingleStatement(sql: string): string {
         // Extract ${variable} substitutions before formatting
         const { sql: sqlWithPlaceholders, substitutions } = extractVariables(sql);
         
+        // Pre-normalize SQL to fix tokenization mismatches
+        const normalizedSql = normalizeForTokenization(sqlWithPlaceholders);
+        
         // Parse with uppercased SQL (grammar matches uppercase keywords)
-        const upperSql = sqlWithPlaceholders.toUpperCase();
+        const upperSql = normalizedSql.toUpperCase();
         const chars = new antlr4.InputStream(upperSql);
         const lexer = new SqlBaseLexer(chars);
         const tokens = new antlr4.CommonTokenStream(lexer);
@@ -244,14 +262,14 @@ function formatSingleStatement(sql: string): string {
         analyzer.visit(tree);
         const analysis = analyzer.getResult();
         
-        // Re-lex original SQL (with placeholders) to get original token texts
-        const origChars = new antlr4.InputStream(sqlWithPlaceholders);
+        // Re-lex normalized SQL to get token texts (now aligned with uppercase stream)
+        const origChars = new antlr4.InputStream(normalizedSql);
         const origLexer = new SqlBaseLexer(origChars);
         const origTokens = new antlr4.CommonTokenStream(origLexer);
         origTokens.fill();
         
         // Detect noqa:expansion directives
-        const noqaInfo = detectNoqaExpansion(sqlWithPlaceholders);
+        const noqaInfo = detectNoqaExpansion(normalizedSql);
         
         // Format tokens
         const formatted = formatTokens(tokens.tokens, origTokens.tokens, analysis, noqaInfo);
