@@ -1154,7 +1154,7 @@ function outputWithoutNewline(
             afterWhereKeyword: state.afterWhereKeyword,
             afterHavingKeyword: state.afterHavingKeyword,
             prevTokenWasUnaryOperator: state.prevTokenWasUnaryOperator && 
-                (state.prevTokenText === '-' || state.prevTokenText === '+'),
+                (state.prevTokenText === '-' || state.prevTokenText === '+' || state.prevTokenText === '~'),
             isLateralViewComma,
             prevIsDoubleColon,
             prevTokenText: state.prevTokenText,

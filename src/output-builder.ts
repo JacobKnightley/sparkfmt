@@ -177,7 +177,7 @@ export function shouldSkipSpace(
         text === '::' || 
         context.prevIsDoubleColon ||
         (text === '(' && (context.prevWasFunctionName || context.prevWasBuiltInFunctionKeyword)) ||
-        (text === ',' && context.insideParens > 0) ||
+        text === ',' ||  // Never add space before comma
         context.isLateralViewComma ||
         context.justOutputCommaFirstStyle ||
         context.justOutputMultiArgFunctionNewline ||

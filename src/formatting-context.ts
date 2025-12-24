@@ -318,7 +318,7 @@ export function isUnaryOperator(
     prevTokenText: string, 
     prevTokenType: number
 ): boolean {
-    if (text !== '+' && text !== '-') return false;
+    if (text !== '+' && text !== '-' && text !== '~') return false;
     
     // Check if previous token indicates unary context
     if (prevTokenText === '' || prevTokenText === '(' || 
