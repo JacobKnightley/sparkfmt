@@ -940,8 +940,8 @@ function determineNewlineAndIndent(
         indent = baseIndent;
     }
     
-    // Subquery close paren
-    if (ctx.isSubqueryCloseParen) {
+    // Subquery close paren - but NOT for compact queries
+    if (ctx.isSubqueryCloseParen && !inCompactQuery) {
         needsNewline = true;
         indent = indentCalc.getBaseIndent(state.subqueryDepth - 1);
     }
