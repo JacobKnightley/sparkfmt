@@ -97,7 +97,7 @@ SqlBaseLexer.prototype.markUnclosedComment = function() {
  * Push dollar-quoted string tag onto stack.
  */
 SqlBaseLexer.prototype.pushDollarTag = function() {
-    this.dollar_tags.push(this.getText());
+    this.dollar_tags.push(this.text);
 };''',
 
     "popDollarTag": '''
@@ -116,7 +116,7 @@ SqlBaseLexer.prototype.popDollarTag = function() {
  */
 SqlBaseLexer.prototype.matchesDollarTag = function() {
     if (this.dollar_tags.length === 0) return false;
-    return this.getText() === this.dollar_tags[this.dollar_tags.length - 1];
+    return this.text === this.dollar_tags[this.dollar_tags.length - 1];
 };''',
 
     # Parser predicates
