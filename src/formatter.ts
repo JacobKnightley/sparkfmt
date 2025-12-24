@@ -22,7 +22,8 @@ import {
     getTokenType, 
     getSymbolicName, 
     isKeywordToken, 
-    isFunctionLikeKeyword 
+    isFunctionLikeKeyword,
+    isNumericLiteral
 } from './token-utils.js';
 // @ts-ignore - Generated ANTLR code
 import SqlBaseParser from './generated/SqlBaseParser.js';
@@ -74,23 +75,39 @@ export function formatSql(sql: string): string {
         const formattedStatements: string[] = [];
         
         for (const stmt of statements) {
-            if (stmt.trim().length === 0) continue;
+            const trimmed = stmt.trim();
             
-            // Check for statement-level noqa (bypass formatting entirely)
-            if (hasStatementNoqa(stmt.trim())) {
-                formattedStatements.push(stmt.trim());
+            // Empty statement - preserve as empty
+            if (trimmed.length === 0) {
+                formattedStatements.push('');
                 continue;
             }
             
-            const formatted = formatSingleStatement(stmt.trim());
+            // Check for statement-level noqa (bypass formatting entirely)
+            if (hasStatementNoqa(trimmed)) {
+                formattedStatements.push(trimmed);
+                continue;
+            }
+            
+            const formatted = formatSingleStatement(trimmed);
             formattedStatements.push(formatted);
         }
         
-        let result = formattedStatements.join(';\n\n');
-        
-        // Preserve trailing semicolon if original had one
-        if (sqlToFormat.trimEnd().endsWith(';')) {
-            result += ';';
+        // Join with semicolons
+        let result = '';
+        for (let i = 0; i < formattedStatements.length; i++) {
+            if (i > 0) {
+                result += ';';
+                // Add newlines only between non-empty statements
+                const prevNonEmpty = formattedStatements[i - 1].length > 0;
+                const currentNonEmpty = formattedStatements[i].length > 0;
+                if (prevNonEmpty && currentNonEmpty) {
+                    result += '\n\n';
+                } else if (currentNonEmpty) {
+                    result += ' ';
+                }
+            }
+            result += formattedStatements[i];
         }
         
         // Restore magic command
@@ -117,6 +134,7 @@ export function needsFormatting(sql: string): boolean {
 
 /**
  * Split SQL on semicolons, but not semicolons inside string literals.
+ * Preserves empty statements (e.g., ";;;" or "; SELECT 1")
  */
 function splitOnSemicolons(sql: string): string[] {
     const statements: string[] = [];
@@ -124,6 +142,7 @@ function splitOnSemicolons(sql: string): string[] {
     let inSingleQuote = false;
     let inDoubleQuote = false;
     let escaped = false;
+    let semicolonCount = 0;
     
     for (let i = 0; i < sql.length; i++) {
         const ch = sql[i];
@@ -147,16 +166,17 @@ function splitOnSemicolons(sql: string): string[] {
             inDoubleQuote = !inDoubleQuote;
             current += ch;
         } else if (ch === ';' && !inSingleQuote && !inDoubleQuote) {
-            if (current.trim().length > 0) {
-                statements.push(current);
-            }
+            // Always push the statement (even if empty)
+            statements.push(current);
             current = '';
+            semicolonCount++;
         } else {
             current += ch;
         }
     }
     
-    if (current.trim().length > 0) {
+    // Push remaining content (if any)
+    if (current.length > 0 || semicolonCount > 0) {
         statements.push(current);
     }
     
@@ -681,6 +701,7 @@ function formatTokens(
         state.prevTokenText = text;
         state.prevTokenType = tokenType;
         state.prevWasInsideComplexType = ctx.isInsideComplexType;
+        state.prevWasNumericLiteral = isNumericLiteral(tokenType);
     }
     
     // Output remaining comments
@@ -1165,6 +1186,7 @@ function outputWithoutNewline(
             currentTokenIsStringLiteral: symbolicName === 'STRING_LITERAL',
             isInsideComplexType: isInsideComplexType,
             prevWasInsideComplexType: state.prevWasInsideComplexType,
+            prevWasNumericLiteral: state.prevWasNumericLiteral,
         });
         
         const needsCommaSpace = shouldAddCommaSpace(builder, state.insideParens, state.justOutputCommaFirstStyle);

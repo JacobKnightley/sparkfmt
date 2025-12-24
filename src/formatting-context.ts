@@ -59,6 +59,7 @@ export function createInitialState(): FormattingState {
         prevTokenType: -1,
         prevTokenWasUnaryOperator: false,
         prevWasInsideComplexType: false,
+        prevWasNumericLiteral: false,
         
         // Hint handling
         insideHint: false,

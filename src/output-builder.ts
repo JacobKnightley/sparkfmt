@@ -161,6 +161,7 @@ export function shouldSkipSpace(
         currentTokenIsStringLiteral: boolean;
         isInsideComplexType: boolean;
         prevWasInsideComplexType: boolean;
+        prevWasNumericLiteral: boolean;
     }
 ): boolean {
     const lastChar = builder.getLastChar();
@@ -184,9 +185,12 @@ export function shouldSkipSpace(
         }
     }
     
+    // Skip space after dot EXCEPT when previous token was a numeric literal (e.g., "1.")
+    const skipSpaceAfterDot = lastChar === '.' && !context.prevWasNumericLiteral;
+    
     return (
         lastChar === '(' || 
-        lastChar === '.' || 
+        skipSpaceAfterDot || 
         lastChar === '\n' ||
         text === ')' || 
         text === '.' ||

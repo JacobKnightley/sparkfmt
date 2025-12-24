@@ -208,6 +208,7 @@ export interface FormattingState {
     prevTokenType: number;
     prevTokenWasUnaryOperator: boolean;
     prevWasInsideComplexType: boolean;
+    prevWasNumericLiteral: boolean;
     
     // Hint handling
     insideHint: boolean;

@@ -145,5 +145,22 @@ export function isFunctionLikeKeyword(tokenType: number, tokenText: string): boo
            FUNCTION_LIKE_KEYWORDS.has(tokenText.toLowerCase());
 }
 
+/**
+ * Check if a token type represents a numeric literal.
+ * 
+ * @param tokenType - The token type number
+ * @returns true if the token is a numeric literal
+ */
+export function isNumericLiteral(tokenType: number): boolean {
+    return tokenType === SqlBaseLexer.INTEGER_VALUE ||
+           tokenType === SqlBaseLexer.DECIMAL_VALUE ||
+           tokenType === SqlBaseLexer.BIGINT_LITERAL ||
+           tokenType === SqlBaseLexer.SMALLINT_LITERAL ||
+           tokenType === SqlBaseLexer.TINYINT_LITERAL ||
+           tokenType === SqlBaseLexer.DOUBLE_LITERAL ||
+           tokenType === SqlBaseLexer.FLOAT_LITERAL ||
+           tokenType === SqlBaseLexer.BIGDECIMAL_LITERAL;
+}
+
 // Re-export the lexer for use in other modules
 export { SqlBaseLexer };
