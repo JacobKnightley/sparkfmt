@@ -93,21 +93,35 @@ export function formatSql(sql: string): string {
             formattedStatements.push(formatted);
         }
         
+        // Trim trailing empty statements (e.g., "SELECT 1;;" -> "SELECT 1;")
+        // But preserve if ALL statements are empty (e.g., ";;;" stays ";;;")
+        let hasNonEmptyStatement = formattedStatements.some(s => s.length > 0);
+        let statementsToJoin = formattedStatements;
+        if (hasNonEmptyStatement) {
+            // Find last non-empty statement
+            let lastNonEmpty = formattedStatements.length - 1;
+            while (lastNonEmpty >= 0 && formattedStatements[lastNonEmpty].length === 0) {
+                lastNonEmpty--;
+            }
+            // Keep only up to the last non-empty + 1 (to get the semicolon after it)
+            statementsToJoin = formattedStatements.slice(0, lastNonEmpty + 2);
+        }
+        
         // Join with semicolons
         let result = '';
-        for (let i = 0; i < formattedStatements.length; i++) {
+        for (let i = 0; i < statementsToJoin.length; i++) {
             if (i > 0) {
                 result += ';';
                 // Add newlines only between non-empty statements
-                const prevNonEmpty = formattedStatements[i - 1].length > 0;
-                const currentNonEmpty = formattedStatements[i].length > 0;
+                const prevNonEmpty = statementsToJoin[i - 1].length > 0;
+                const currentNonEmpty = statementsToJoin[i].length > 0;
                 if (prevNonEmpty && currentNonEmpty) {
                     result += '\n\n';
                 } else if (currentNonEmpty) {
                     result += ' ';
                 }
             }
-            result += formattedStatements[i];
+            result += statementsToJoin[i];
         }
         
         // Restore magic command
