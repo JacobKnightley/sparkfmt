@@ -24,6 +24,11 @@ export const commentTests: TestSuite = {
             expected: '-- comment 1\n-- comment 2\nSELECT\n     x\n    ,y\nFROM t',
         },
         {
+            name: 'Leading comments with blank line preserved',
+            input: '-- comment 1\n\n-- comment 2\nselect x, y from t',
+            expected: '-- comment 1\n\n-- comment 2\nSELECT\n     x\n    ,y\nFROM t',
+        },
+        {
             name: 'Leading block comment single line',
             input: '/* header */ select x, y from t',
             expected: '/* header */ SELECT\n     x\n    ,y\nFROM t',
@@ -77,7 +82,7 @@ export const commentTests: TestSuite = {
         {
             name: 'Comment between table and alias',
             input: 'select x, y from t /* tbl */ as a',
-            expected: 'SELECT\n     x\n    ,y\nFROM t /* tbl */ AS a',
+            expected: 'SELECT\n     x\n    ,y\nFROM t /* tbl */ a',
         },
         
         // === COMMENTS IN WHERE CLAUSE ===

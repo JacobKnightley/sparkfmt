@@ -107,12 +107,14 @@ export interface AnalyzerResult {
     
     // Alias handling
     aliasInsertPositions: Set<number>;
+    tableAliasAsTokens: Set<number>;  // AS tokens in table alias context (to be suppressed)
     
     // JOIN handling
     joinOnTokens: Set<number>;
     
     // CTE handling
     cteCommas: Set<number>;
+    cteMainSelectTokens: Set<number>;  // SELECT tokens of main query after CTE block
     
     // DDL handling
     ddlColumnCommas: Set<number>;
@@ -289,6 +291,8 @@ export interface PendingComment {
     text: string;
     type: number;
     wasOnOwnLine: boolean;
+    /** True if there was a blank line before this comment (for preserving paragraph breaks) */
+    hadBlankLineBefore: boolean;
 }
 
 // ============================================================================

@@ -72,6 +72,27 @@ export const aliasTests: TestSuite = {
             input: 'select a x, b y, count(*) cnt from t',
             expected: 'SELECT\n     a AS x\n    ,b AS y\n    ,COUNT(*) AS cnt\nFROM t',
         },
+        // Table alias - AS should be removed
+        {
+            name: 'Table alias AS is removed',
+            input: 'select * from users as u',
+            expected: 'SELECT * FROM users u',
+        },
+        {
+            name: 'Table alias without AS preserved',
+            input: 'select * from users u',
+            expected: 'SELECT * FROM users u',
+        },
+        {
+            name: 'Subquery alias AS is removed',
+            input: 'select * from (select 1) as sub',
+            expected: 'SELECT * FROM (SELECT 1) sub',
+        },
+        {
+            name: 'JOIN table alias AS is removed',
+            input: 'select * from t1 as a join t2 as b on a.id = b.id',
+            expected: 'SELECT *\nFROM t1 a\nJOIN t2 b\n    ON a.id = b.id',
+        },
     ],
 };
 

@@ -1,9 +1,37 @@
 {
-  "name": "sparkfmt-ts",
-  "version": "1.0.0",
+  "name": "@jacobknightley/sparkfmt",
+  "version": "0.1.0",
   "type": "module",
-  "description": "Spark SQL Formatter using ANTLR4 - TypeScript POC",
+  "description": "A fast, opinionated Apache Spark SQL formatter with zero configuration",
   "main": "dist/index.js",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "types": "dist/index.d.ts",
+  "bin": {
+    "sparkfmt": "dist/cli.js"
+  },
+  "files": [
+    "dist/**/*.js",
+    "dist/**/*.d.ts",
+    "!dist/tests/**"
+  ],
+  "keywords": [
+    "spark",
+    "sql",
+    "formatter",
+    "databricks",
+    "fabric",
+    "delta-lake"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-org/sparkfmt"
+  },
+  "license": "MIT",
   "scripts": {
     "build:antlr": "python scripts/build_antlr_js.py",
     "build:ts": "tsc",

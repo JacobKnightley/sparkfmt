@@ -32,9 +32,9 @@ export const magicCommandsTests: TestSuite = {
             expected: 'SELECT * FROM table1'
         },
         {
-            name: 'Magic command with leading whitespace should be ignored',
+            name: 'Magic command with leading whitespace - formats SQL after magic',
             input: '  %%sql\nselect * from table1',
-            expected: '% % SQL SELECT * FROM table1'
+            expected: '  %%sql\nSELECT * FROM table1'
         }
     ]
 };

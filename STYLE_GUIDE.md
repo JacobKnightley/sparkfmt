@@ -1,28 +1,29 @@
 # Spark SQL Style Guide
 
-A formatting standard for Apache Spark SQL, enforced by `sparkfmt`.
+**sparkfmt** is an opinionated formatter with zero configuration. There are no options, flags, or config files to tweak — every Spark SQL file formats exactly the same way, every time.
 
-## General Principles
-
-- **Keywords**: UPPERCASE
-- **Identifiers**: Preserve original casing
-- **Built-in functions**: UPPERCASE
-- **User-defined functions**: Preserve original casing
-- **Indentation**: 4 spaces
-- **Commas**: Leading (comma-first style)
+This guide explains *what* the formatter does so you know what to expect.
 
 ---
 
-## SELECT Clause
+## The Basics
 
-Single column stays inline. Multiple columns use comma-first with 5-space first indent:
+| What | How it's formatted |
+|------|-------------------|
+| Keywords | `UPPERCASE` |
+| Built-in functions | `UPPERCASE()` |
+| User-defined functions | `preserveCase()` |
+| Identifiers (tables, columns) | `preserveCase` |
+| Indentation | 4 spaces |
+| Line width threshold | 140 characters |
+
+---
+
+## Commas Go First
+
+We use **leading commas** (comma-first style). This makes it easy to add, remove, or reorder columns without touching other lines:
 
 ```sql
--- Single column
-SELECT id
-FROM users
-
--- Multiple columns
 SELECT
      id
     ,name
@@ -30,20 +31,57 @@ SELECT
 FROM users
 ```
 
-Use `AS` for column aliases. Omit `AS` for table aliases:
+The first item gets 5 spaces of indent. Subsequent items get 4 spaces + comma.
 
+---
+
+## Aliases
+
+**Column aliases** use `AS`:
 ```sql
-SELECT
-     COUNT(*) AS total
-    ,u.name
+SELECT COUNT(*) AS total
+```
+
+**Table aliases** omit `AS`:
+```sql
 FROM users u
+JOIN orders o ON u.id = o.user_id
 ```
 
 ---
 
-## FROM and JOIN
+## When Lines Expand
 
-Each JOIN starts on a new line. ON clause indented below:
+Simple queries stay compact:
+```sql
+SELECT id FROM users WHERE active = TRUE
+```
+
+The formatter expands to multiple lines when:
+- **Multiple columns** in SELECT
+- **Multiple conditions** in WHERE
+- **Multiple items** in GROUP BY / ORDER BY
+- **Line exceeds 140 characters**
+
+```sql
+-- Multiple columns → expanded
+SELECT
+     id
+    ,name
+    ,email
+FROM users
+
+-- Multiple conditions → expanded  
+WHERE
+    status = 'active'
+    AND created_date > '2024-01-01'
+```
+
+---
+
+## JOINs
+
+Each JOIN starts on a new line. The ON clause indents below:
 
 ```sql
 SELECT
@@ -56,8 +94,7 @@ LEFT JOIN products p
     ON a.product_id = p.id
 ```
 
-Multiple join conditions use AND on new lines:
-
+Multiple join conditions:
 ```sql
 JOIN table_b b
     ON a.id = b.id
@@ -66,43 +103,9 @@ JOIN table_b b
 
 ---
 
-## WHERE and HAVING
-
-Single condition stays inline. Multiple conditions use leading operators:
-
-```sql
--- Single condition
-WHERE status = 'active'
-
--- Multiple conditions
-WHERE
-    status = 'active'
-    AND created_date > '2024-01-01'
-    AND amount > 100
-```
-
----
-
-## GROUP BY and ORDER BY
-
-Single item stays inline. Multiple items use comma-first:
-
-```sql
--- Single item
-GROUP BY department
-
--- Multiple items
-GROUP BY
-     department
-    ,region
-    ,year
-```
-
----
-
 ## Subqueries
 
-Indent subquery content 4 spaces. Closing paren aligned with opening keyword:
+Subquery content indents 4 spaces:
 
 ```sql
 SELECT *
@@ -118,9 +121,9 @@ WHERE sub.id > 100
 
 ---
 
-## CTEs (WITH Clause)
+## CTEs (WITH)
 
-Each CTE on its own block. Multiple CTEs use comma-first:
+Multiple CTEs use comma-first:
 
 ```sql
 WITH active_users AS (
@@ -141,196 +144,69 @@ JOIN recent_orders r
 
 ---
 
-## Set Operations
-
-UNION, EXCEPT, INTERSECT on their own line:
-
-```sql
-SELECT id FROM table_a
-UNION ALL
-SELECT id FROM table_b
-EXCEPT
-SELECT id FROM table_c
-```
-
----
-
 ## Functions
 
-No space between function name and opening paren. Space after commas in arguments:
+No space before the opening paren:
 
 ```sql
 SELECT
      COUNT(*)
     ,SUM(amount)
     ,COALESCE(name, 'Unknown')
-    ,CONCAT(first, ' ', last)
 FROM orders
 ```
 
-### Nested Functions (Line-Width Triggered Expansion)
-
-Multi-argument functions expand to multiple lines when the line would exceed 140 characters.
-The formatter checks at each nesting level: if the function call would make the line too long,
-it expands with comma-first formatting. Inner functions only expand if they too would exceed
-the threshold at their indent level.
+Long function calls expand when they'd exceed 140 characters:
 
 ```sql
--- Short function calls stay inline (under 140 chars)
-SELECT COALESCE(UPPER(a), LOWER(b))
-FROM t
+-- Short → stays inline
+SELECT COALESCE(a, b, c)
 
--- Long function calls expand when exceeding 140 chars
+-- Long → expands
 SELECT COALESCE(
-     UPPER(very_long_column_name_one)
-    ,LOWER(very_long_column_name_two)
-    ,TRIM(another_very_long_column_name)
+     very_long_column_name_one
+    ,very_long_column_name_two
+    ,another_very_long_column_name
 )
+```
+
+---
+
+## Escape Hatches
+
+### Skip formatting entirely: `noqa`
+
+```sql
+-- noqa
+select   x,y,z   from   t   -- Preserved exactly as written
+```
+
+### Keep long lines from expanding: `noqa:expansion`
+
+```sql
+SELECT COALESCE(a, b, c, d, e, f, g, h, i, j) -- noqa:expansion
 FROM t
-
--- Deeply nested functions expand level by level based on width
-SELECT CONV(
-     RIGHT(
-         MD5(UPPER(CONCAT(short_col_a, short_col_b)))
-        ,16
-    )
-    ,16
-    ,-10
-)
-FROM t
-```
-
-Single-arg function chains stay inline regardless of nesting depth:
-
-```sql
--- Single-arg chains stay compact
-SELECT UPPER(LOWER(TRIM(name)))
-FROM users
-```
-
-Window functions stay inline:
-
-```sql
-SELECT
-     ROW_NUMBER() OVER (PARTITION BY dept ORDER BY salary DESC)
-    ,SUM(amount) OVER (ORDER BY date ROWS UNBOUNDED PRECEDING)
-FROM employees
-```
-
----
-
-## CASE Expressions
-
-CASE stays inline for simple expressions:
-
-```sql
-SELECT CASE WHEN status = 1 THEN 'Active' ELSE 'Inactive' END
-FROM users
-```
-
----
-
-## DDL Statements
-
-Single column stays inline. Multiple columns use comma-first:
-
-```sql
--- Single column
-CREATE TABLE simple (id INT)
-
--- Multiple columns
-CREATE TABLE users (
-     id INT
-    ,name STRING
-    ,email STRING
-)
-```
-
----
-
-## DML Statements
-
-INSERT with SELECT:
-
-```sql
-INSERT INTO target
-SELECT
-     id
-    ,name
-FROM source
-WHERE active = TRUE
-```
-
-UPDATE with multiple assignments:
-
-```sql
-UPDATE users
-SET
-     status = 'inactive'
-    ,updated_at = CURRENT_TIMESTAMP
-WHERE last_login < '2024-01-01'
-```
-
----
-
-## Comments and Hints
-
-Preserve comment position. Hints stay with SELECT:
-
-```sql
--- Header comment
-SELECT /*+ BROADCAST(t) */
-     a
-    ,b
-FROM large_table t
-WHERE x = 1  -- inline comment
-```
-
----
-
-## Spark-Specific
-
-LATERAL VIEW, PIVOT, TABLESAMPLE stay on FROM line:
-
-```sql
-SELECT *
-FROM events LATERAL VIEW EXPLODE(items) AS item
-
-SELECT *
-FROM sales PIVOT (SUM(amount) FOR quarter IN (1, 2, 3, 4))
-
-SELECT *
-FROM large_table TABLESAMPLE (10 PERCENT)
-```
-
-CLUSTER BY, DISTRIBUTE BY, SORT BY as clauses:
-
-```sql
-SELECT *
-FROM events
-DISTRIBUTE BY user_id
-SORT BY timestamp
 ```
 
 ---
 
 ## Quick Reference
 
-| Element | Style |
-|---------|-------|
-| Keywords | `UPPERCASE` |
-| Functions | `UPPERCASE()` |
-| UDFs | `preserveCase()` |
-| Identifiers | `preserveCase` |
-| Column alias | `expr AS alias` |
-| Table alias | `table t` (no AS) |
-| Indent | 4 spaces |
-| Commas | Leading |
-| First item indent | 5 spaces |
-| Subsequent indent | 4 spaces + comma |
-
----
-
-## Known Limitations
-
-See [KNOWN_ISSUES.md](./KNOWN_ISSUES.md) for current formatting bugs.
+```
+SELECT
+     first_column              -- 5 spaces
+    ,second_column             -- 4 spaces + comma
+    ,COUNT(*) AS total         -- AS for column aliases
+FROM table_name t              -- no AS for table aliases
+INNER JOIN other_table o
+    ON t.id = o.id             -- ON indented under JOIN
+WHERE
+    condition_one = 1
+    AND condition_two = 2      -- AND/OR at line start
+GROUP BY
+     column_one
+    ,column_two
+ORDER BY
+     column_one DESC
+    ,column_two ASC
+```

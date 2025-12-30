@@ -109,7 +109,11 @@ export function outputComments(
     let lastWasMultilineBlock = false;
     
     for (const comment of comments) {
-        if (addSpaceBefore && !builder.isEmpty()) {
+        // Preserve blank line before comment if it existed in the original
+        if (comment.hadBlankLineBefore && !builder.isEmpty()) {
+            builder.ensureNewline();
+            builder.push('\n');  // Add extra newline for blank line
+        } else if (addSpaceBefore && !builder.isEmpty()) {
             const lastChar = builder.getLastChar();
             // Don't add space after newline or space
             // For line comments, add space even after open paren

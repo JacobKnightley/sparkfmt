@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 /**
  * CLI for Spark SQL Formatter
  */
@@ -10,22 +11,25 @@ const args = process.argv.slice(2);
 
 /**
  * Format content based on file extension.
- * .py files are treated as potential Fabric notebooks.
+ * .py, .scala, .r, and .sql files are treated as potential Fabric notebooks.
+ * If a .sql file is not a Fabric notebook, it's formatted as standard SQL.
  */
 function formatContent(content: string, filePath?: string): string {
-    if (filePath && filePath.endsWith('.py')) {
-        return formatFabricNotebook(content, formatSql);
+    const notebookExtensions = ['.py', '.scala', '.r', '.sql'];
+    if (filePath && notebookExtensions.some(ext => filePath.endsWith(ext))) {
+        const result = formatFabricNotebook(content, formatSql);
+        // If unchanged and it's a .sql file, format as standard SQL
+        if (result === content && filePath.endsWith('.sql')) {
+            return formatSql(content);
+        }
+        return result;
     }
     return formatSql(content);
 }
 
-// Helper to output formatted SQL (to file or stdout)
-function output(formatted: string, outputFile?: string) {
-    if (outputFile) {
-        fs.writeFileSync(outputFile, formatted, 'utf-8');
-    } else {
-        console.log(formatted);
-    }
+// Helper to output formatted SQL
+function output(formatted: string) {
+    console.log(formatted);
 }
 
 /**
@@ -59,50 +63,7 @@ function convertLineEndings(content: string, lineEnding: '\r\n' | '\n'): string 
     return normalized;
 }
 
-/**
- * Batch mode: format multiple files in-place
- * Returns JSON with results for each file
- */
-function batchFormat(files: string[]): void {
-    const results: { file: string; status: 'formatted' | 'unchanged' | 'error'; error?: string }[] = [];
-    
-    for (const file of files) {
-        try {
-            const content = fs.readFileSync(file, 'utf-8');
-            const originalLineEnding = detectLineEnding(content);
-            
-            // Normalize to \n for formatting, then restore original line endings
-            const normalizedContent = normalizeLineEndings(content);
-            const formatted = formatContent(normalizedContent, file);
-            const formattedWithOriginalEndings = convertLineEndings(formatted, originalLineEnding);
-            
-            if (formattedWithOriginalEndings !== content) {
-                fs.writeFileSync(file, formattedWithOriginalEndings, 'utf-8');
-                results.push({ file, status: 'formatted' });
-            } else {
-                results.push({ file, status: 'unchanged' });
-            }
-        } catch (e: any) {
-            results.push({ file, status: 'error', error: e.message });
-        }
-    }
-    
-    // Output JSON for easy parsing by caller
-    console.log(JSON.stringify(results));
-}
-
-// Parse output file option
-function parseOutputOption(args: string[]): { outputFile?: string; remainingArgs: string[] } {
-    const outputIdx = args.findIndex(a => a === '-o' || a === '--output');
-    if (outputIdx !== -1 && args[outputIdx + 1]) {
-        const outputFile = args[outputIdx + 1];
-        const remainingArgs = [...args.slice(0, outputIdx), ...args.slice(outputIdx + 2)];
-        return { outputFile, remainingArgs };
-    }
-    return { remainingArgs: args };
-}
-
-const { outputFile, remainingArgs } = parseOutputOption(args);
+const remainingArgs = args;
 
 if (remainingArgs.length === 0) {
     // Interactive mode - read from stdin
@@ -119,7 +80,7 @@ if (remainingArgs.length === 0) {
     
     rl.on('close', () => {
         const formatted = formatSql(sql.trim());
-        output(formatted, outputFile);
+        output(formatted);
     });
 } else if (remainingArgs[0] === '--help' || remainingArgs[0] === '-h') {
     console.log(`Spark SQL Formatter
@@ -130,29 +91,29 @@ Usage:
 
 Options:
   -h, --help          Show this help message
-  -o, --output FILE   Write output to FILE instead of stdout
   -c, --check         Check if file needs formatting (exit 1 if so)
   -i, --inline        Format SQL provided as argument
-  -b, --batch         Batch mode: format multiple files in-place (JSON output)
+  --stdout            Print to stdout instead of formatting in-place
 
 Examples:
-  sparkfmt query.sql                    Format file to stdout
-  sparkfmt query.sql -o formatted.sql   Format file to output file
+  sparkfmt query.sql                    Format file in-place
+  sparkfmt *.sql                        Format multiple files in-place
   sparkfmt -i "select * from t"         Format inline SQL
   sparkfmt -c query.sql                 Check if formatting needed
-  sparkfmt -b file1.sql file2.sql       Batch format files in-place
+  sparkfmt --stdout query.sql           Print formatted SQL to stdout
 `);
-} else if (remainingArgs[0] === '-b' || remainingArgs[0] === '--batch') {
-    // Batch mode: format multiple files in-place
-    const files = remainingArgs.slice(1);
-    if (files.length === 0) {
-        console.error('Error: No files specified for --batch');
+} else if (remainingArgs[0] === '--stdout') {
+    // Print to stdout instead of in-place
+    const file = remainingArgs[1];
+    if (!file) {
+        console.error('Error: No file specified for --stdout');
         process.exit(2);
     }
-    batchFormat(files);
+    const content = fs.readFileSync(file, 'utf-8');
+    console.log(formatContent(content, file));
 } else if (remainingArgs[0] === '-i' || remainingArgs[0] === '--inline') {
     const sql = remainingArgs.slice(1).join(' ');
-    output(formatSql(sql), outputFile);
+    output(formatSql(sql));
 } else if (remainingArgs[0] === '-c' || remainingArgs[0] === '--check') {
     const file = remainingArgs[1];
     if (!file) {
@@ -167,13 +128,23 @@ Examples:
     }
     console.log(`File ${file} is properly formatted`);
 } else {
-    // File argument
-    const file = remainingArgs[0];
-    try {
-        const content = fs.readFileSync(file, 'utf-8');
-        output(formatContent(content, file), outputFile);
-    } catch (e: any) {
-        console.error(`Error reading file: ${e.message}`);
-        process.exit(1);
+    // File argument(s) - format in-place
+    const files = remainingArgs;
+    for (const file of files) {
+        try {
+            const content = fs.readFileSync(file, 'utf-8');
+            const originalLineEnding = detectLineEnding(content);
+            const normalizedContent = normalizeLineEndings(content);
+            const formatted = formatContent(normalizedContent, file);
+            const formattedWithOriginalEndings = convertLineEndings(formatted, originalLineEnding);
+            
+            if (formattedWithOriginalEndings !== content) {
+                fs.writeFileSync(file, formattedWithOriginalEndings, 'utf-8');
+                console.log(`Formatted ${file}`);
+            }
+        } catch (e: any) {
+            console.error(`Error formatting ${file}: ${e.message}`);
+            process.exit(1);
+        }
     }
 }

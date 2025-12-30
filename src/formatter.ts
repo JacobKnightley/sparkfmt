@@ -60,13 +60,17 @@ import type { AnalyzerResult, ExpandedFunction, ExpandedWindow, ExpandedPivot, P
 export function formatSql(sql: string): string {
     try {
         // Handle magic commands (%%sql, %sql)
+        // Find magic command anywhere in input - only format SQL after it
+        // This allows content before the magic (e.g., Python code) to remain untouched
+        let prefix = '';
         let magicCommand = '';
         let sqlToFormat = sql;
         
-        const magicMatch = sql.match(/^(%%sql|%sql)\s*\n?/);
-        if (magicMatch) {
+        const magicMatch = sql.match(/(%%sql|%sql)[ \t]*\n?/);
+        if (magicMatch && magicMatch.index !== undefined) {
+            prefix = sql.substring(0, magicMatch.index);
             magicCommand = magicMatch[1];
-            sqlToFormat = sql.substring(magicMatch[0].length);
+            sqlToFormat = sql.substring(magicMatch.index + magicMatch[0].length);
         }
         
         // Split on semicolons and format each statement
@@ -93,9 +97,9 @@ export function formatSql(sql: string): string {
             result += ';';
         }
         
-        // Restore magic command
+        // Restore magic command and prefix
         if (magicCommand) {
-            result = magicCommand + '\n' + result;
+            result = prefix + magicCommand + '\n' + result;
         }
         
         return result;
@@ -375,7 +379,8 @@ function formatTokens(
                 if (hiddenToken.type === SqlBaseLexer.SIMPLE_COMMENT || 
                     hiddenToken.type === SqlBaseLexer.BRACKETED_COMMENT) {
                     const wasOnOwnLine = CommentManager.checkWasOnOwnLine(j, hiddenToken, allOrigTokens);
-                    comments.add({ text: hiddenToken.text, type: hiddenToken.type, wasOnOwnLine });
+                    const hadBlankLineBefore = CommentManager.checkHadBlankLineBefore(j, allOrigTokens);
+                    comments.add({ text: hiddenToken.text, type: hiddenToken.type, wasOnOwnLine, hadBlankLineBefore });
                 }
             }
         }
@@ -402,7 +407,8 @@ function formatTokens(
             token.type === SqlBaseLexer.BRACKETED_COMMENT) {
             if (!wasAlreadyProcessed) {
                 const wasOnOwnLine = CommentManager.checkWasOnOwnLine(i, origToken, allOrigTokens);
-                comments.add({ text: origToken.text, type: token.type, wasOnOwnLine });
+                const hadBlankLineBefore = CommentManager.checkHadBlankLineBefore(i, allOrigTokens);
+                comments.add({ text: origToken.text, type: token.type, wasOnOwnLine, hadBlankLineBefore });
             }
             continue;
         }
@@ -440,6 +446,11 @@ function formatTokens(
                 state.hintContent.push(text);
                 continue;
             }
+        }
+        
+        // Skip AS tokens in table alias context (style: table aliases have no AS)
+        if (analysis.tableAliasAsTokens.has(tokenIndex)) {
+            continue;
         }
         
         // Get context from analysis
@@ -859,6 +870,7 @@ function getTokenContext(tokenIndex: number, analysis: AnalyzerResult) {
         isSubqueryCloseParen: analysis.subqueryCloseParens.has(tokenIndex),
         isSetOperandParen: analysis.setOperandParens.has(tokenIndex),
         isCteComma: analysis.cteCommas.has(tokenIndex),
+        isCteMainSelect: analysis.cteMainSelectTokens.has(tokenIndex),
         isDdlComma: analysis.ddlColumnCommas.has(tokenIndex),
         isDdlOpenParen: analysis.ddlOpenParens.has(tokenIndex),
         isDdlCloseParen: analysis.ddlCloseParens.has(tokenIndex),
@@ -1061,6 +1073,13 @@ function determineNewlineAndIndent(
         indent = baseIndent;
     }
     
+    // CTE main SELECT - always add newline after CTE block (per STYLE_GUIDE)
+    // This takes precedence over compact query logic because the CTE body may have expanded
+    if (ctx.isCteMainSelect && !state.isFirstNonWsToken) {
+        needsNewline = true;
+        indent = baseIndent;
+    }
+    
     // Clause start newline - SKIP if inside a compact query OR short set operation
     if (!state.isFirstNonWsToken && ctx.isClauseStart && !ctx.isInIdentifierContext && !inCompactQuery && !isShortSetOperation) {
         needsNewline = true;
@@ -1249,6 +1268,10 @@ function outputWithNewline(
     
     // Output own-line comments with indent
     for (const comment of ownLineComments) {
+        // Preserve blank line before comment if it existed in the original
+        if (comment.hadBlankLineBefore && !builder.isEmpty()) {
+            builder.push('\n');  // Add extra newline for blank line
+        }
         if (indent) builder.push(indent);
         builder.push(comment.text);
         if (comment.type === SqlBaseLexer.BRACKETED_COMMENT && !comment.text.endsWith('\n')) {

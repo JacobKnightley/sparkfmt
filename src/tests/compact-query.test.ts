@@ -114,7 +114,7 @@ export const compactQueryTests: TestSuite = {
         },
         // GROUP BY queries are NOT simple (they expand)
         {
-            name: 'COUNT with GROUP BY single item stays inline',
+            name: 'COUNT with GROUP BY expands (not simple)',
             input: 'select count(*) from orders group by status',
             expected: 'SELECT COUNT(*)\nFROM orders\nGROUP BY status'
         },

@@ -185,6 +185,50 @@ export class CommentManager {
         }
         return false;
     }
+    
+    /**
+     * Check if there was a blank line before this comment.
+     * A blank line means there was whitespace with at least one newline IMMEDIATELY before
+     * this comment AND the token before that WS was also a comment (since SIMPLE_COMMENT 
+     * includes its trailing newline, any additional newline in WS indicates a blank line).
+     */
+    static checkHadBlankLineBefore(
+        commentTokenIndex: number, 
+        allTokens: any[]
+    ): boolean {
+        // Only check the immediately preceding token
+        if (commentTokenIndex < 1) return false;
+        
+        const prevToken = allTokens[commentTokenIndex - 1];
+        if (!prevToken) return false;
+        
+        // If immediate predecessor is not WS, there's no blank line
+        if (prevToken.type !== SqlBaseLexer.WS) return false;
+        
+        // Check if the WS has newlines
+        if (!prevToken.text || !prevToken.text.includes('\n')) return false;
+        
+        // Now check what's before the WS
+        if (commentTokenIndex < 2) {
+            // WS at start of file with newlines = blank line at top
+            return true;
+        }
+        
+        const tokenBeforeWs = allTokens[commentTokenIndex - 2];
+        if (!tokenBeforeWs) return false;
+        
+        // If token before WS is a comment, this WS newline represents a blank line
+        // (because comments include their trailing newline)
+        if (tokenBeforeWs.type === SqlBaseLexer.SIMPLE_COMMENT || 
+            tokenBeforeWs.type === SqlBaseLexer.BRACKETED_COMMENT) {
+            return true;
+        }
+        
+        // If token before WS is something else (like code), check for 2+ newlines
+        // (one newline ends the code line, a second indicates blank line)
+        const newlineCount = (prevToken.text.match(/\n/g) || []).length;
+        return newlineCount >= 2;
+    }
 }
 
 /**

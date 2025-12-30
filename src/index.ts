@@ -29,11 +29,9 @@ export type {
 // Noqa utilities (for library consumers who want to detect noqa directives)
 export { hasStatementNoqa, detectNoqaExpansion, isExpansionSuppressed, type NoqaInfo } from './noqa-detector.js';
 
-// Magic SQL extractor (for Fabric notebooks saved as Python files)
+// Magic SQL extractor (for Fabric notebooks saved as .py, .scala, .r files)
 export { 
     extractMagicSqlCells, 
-    addMagicPrefix, 
-    replaceSqlCell, 
     formatFabricNotebook,
     type MagicSqlCell,
     type MagicSqlFile

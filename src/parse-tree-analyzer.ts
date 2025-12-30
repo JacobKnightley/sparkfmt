@@ -53,12 +53,14 @@ export class ParseTreeAnalyzer extends SqlBaseParserVisitor {
     
     // Alias handling
     aliasInsertPositions: Set<number> = new Set();
+    tableAliasAsTokens: Set<number> = new Set();  // AS tokens in table alias context (to be suppressed)
     
     // JOIN handling
     joinOnTokens: Set<number> = new Set();
     
     // CTE handling
     cteCommas: Set<number> = new Set();
+    cteMainSelectTokens: Set<number> = new Set();  // SELECT tokens of main query after CTE block
     
     // DDL handling
     ddlColumnCommas: Set<number> = new Set();
@@ -142,8 +144,10 @@ export class ParseTreeAnalyzer extends SqlBaseParserVisitor {
             subqueryCloseParens: this.subqueryCloseParens,
             setOperandParens: this.setOperandParens,
             aliasInsertPositions: this.aliasInsertPositions,
+            tableAliasAsTokens: this.tableAliasAsTokens,
             joinOnTokens: this.joinOnTokens,
             cteCommas: this.cteCommas,
+            cteMainSelectTokens: this.cteMainSelectTokens,
             ddlColumnCommas: this.ddlColumnCommas,
             ddlOpenParens: this.ddlOpenParens,
             ddlCloseParens: this.ddlCloseParens,
@@ -419,6 +423,22 @@ export class ParseTreeAnalyzer extends SqlBaseParserVisitor {
         return this.visitChildren(ctx);
     }
     
+    /**
+     * Visit table alias context and mark AS tokens for suppression.
+     * Style guide says table aliases should NOT have AS keyword.
+     * Grammar: tableAlias: (AS? strictIdentifier identifierList?)?
+     */
+    visitTableAlias(ctx: any): any {
+        // Check if this table alias has an AS keyword
+        if (ctx.AS && typeof ctx.AS === 'function') {
+            const asToken = ctx.AS();
+            if (asToken && asToken.symbol) {
+                this.tableAliasAsTokens.add(asToken.symbol.tokenIndex);
+            }
+        }
+        return this.visitChildren(ctx);
+    }
+    
     visitAggregationClause(ctx: any): any {
         this._markClauseStart(ctx);
         this._markGroupByAllToken(ctx);
@@ -651,6 +671,57 @@ export class ParseTreeAnalyzer extends SqlBaseParserVisitor {
     }
     
     // ========== CTE CONTEXTS ==========
+    
+    // Handle the top-level query rule: query = ctes? queryTerm queryOrganization
+    // This marks the main SELECT after CTE definitions
+    visitQuery(ctx: any): any {
+        // Check if this query has CTEs
+        let hasCtes = false;
+        let queryTermChild: any = null;
+        
+        if (ctx.children) {
+            for (const child of ctx.children) {
+                if (child.ruleIndex !== undefined) {
+                    const ruleName = SqlBaseParser.ruleNames[child.ruleIndex];
+                    if (ruleName === 'ctes') {
+                        hasCtes = true;
+                    } else if (ruleName === 'queryTerm') {
+                        queryTermChild = child;
+                    }
+                }
+            }
+        }
+        
+        // If CTEs exist, find and mark the first SELECT token of the main query
+        if (hasCtes && queryTermChild) {
+            const selectToken = this._findFirstSelectToken(queryTermChild);
+            if (selectToken !== null) {
+                this.cteMainSelectTokens.add(selectToken);
+            }
+        }
+        
+        return this.visitChildren(ctx);
+    }
+    
+    // Helper to find the first SELECT token in a queryTerm subtree
+    private _findFirstSelectToken(ctx: any): number | null {
+        if (!ctx) return null;
+        
+        // Check if this node has a SELECT token
+        if (ctx.symbol && ctx.symbol.type === getTokenType('SELECT')) {
+            return ctx.symbol.tokenIndex;
+        }
+        
+        // Recurse into children
+        if (ctx.children) {
+            for (const child of ctx.children) {
+                const result = this._findFirstSelectToken(child);
+                if (result !== null) return result;
+            }
+        }
+        
+        return null;
+    }
     
     visitCtes(ctx: any): any {
         this._markClauseStart(ctx);

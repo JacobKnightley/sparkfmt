@@ -1,146 +1,216 @@
 # sparkfmt
 
-TypeScript/JavaScript Spark SQL Formatter using ANTLR4 parse tree.
+A fast, opinionated Apache Spark SQL formatter with **zero configuration**.
 
-## Overview
+## Why?
 
-A 100% **grammar-driven** SQL formatter for Apache Spark SQL. The ANTLR grammar files (`SqlBaseLexer.g4`, `SqlBaseParser.g4`) are the **single source of truth** — no hardcoded keyword or function lists.
+There's no shortage of SQL formatters, but none are purpose-built for Spark. Generic formatters don't prioritize spark-specific syntax like `LATERAL VIEW`, `DISTRIBUTE BY`, or Delta Lake's `MERGE`. We wanted a formatter that speaks Spark natively.
 
-This implementation uses the JavaScript ANTLR4 runtime, which can successfully parse the full Apache Spark SQL grammar **without stack overflow**, making it viable for use in browser extensions.
+Formatting is personal. This tool reflects our team's preferences — comma-first, uppercase keywords, specific indentation rules. It won't be for everyone, and that's fine. The goal isn't to please everyone; it's to do *one thing well*: format Spark SQL consistently, with zero decisions required.
 
-## Key Features
+Built on [Apache Spark's official ANTLR grammar](https://github.com/apache/spark/tree/master/sql/api/src/main/antlr4/org/apache/spark/sql/catalyst/parser) — if Spark supports it, the formatter supports it.
 
-- **100% Grammar-Driven**: Keywords detected via `symbolicNames[tokenType] === text.toUpperCase()` — no hardcoded lists
-- **Uppercases SQL keywords**: `SELECT`, `FROM`, `WHERE`, etc.
-- **Uppercases built-in functions**: `COUNT()`, `SUM()`, `ROW_NUMBER()`, etc.
-- **Preserves identifier casing**: Table names, column names, aliases stay as-is
-- **Context-sensitive keyword handling**: `a.key`, `a.order` preserve lowercase (identifiers after dot), while `ORDER BY` is uppercase (keyword position)
-- **Adds newlines before major clauses**: `SELECT`, `FROM`, `WHERE`, `JOIN`, etc.
+## Features
 
-## Context-Sensitive Keywords
+- **Uppercase keywords**: `SELECT`, `FROM`, `WHERE`, `JOIN`, etc.
+- **Uppercase built-in functions**: `COUNT()`, `SUM()`, `COALESCE()`, `ROW_NUMBER()`, etc.
+- **Preserve identifier casing**: Table names, column names, UDFs stay as written
+- **Comma-first style**: Leading commas for easy column management
+- **Smart line breaks**: Expands multi-item clauses, keeps simple queries compact
+- **Context-aware**: Distinguishes `a.order` (column) from `ORDER BY` (keyword)
+- **Fabric notebook support**: Format SQL cells in Python, Scala, R, and SQL notebook files
 
-The critical capability this formatter demonstrates is **context-sensitive keyword handling**:
-
-```sql
--- Input:
-select a.key, a.order, a.value from t order by a.order
-
--- Output:
-SELECT a.key, a.order, a.value
-FROM t
-ORDER BY a.order
-```
-
-Note how:
-- `a.key`, `a.order`, `a.value` preserve lowercase - these are **identifiers** (field access after dot)
-- `ORDER BY` is uppercase - this is a **keyword** position
-
-This is impossible with a simple tokenizer because you need the **parse tree context** to know whether `order` is an identifier or keyword.
-
-## Build
+## Installation
 
 ```bash
-# Install dependencies
-npm install
-
-# Build ANTLR parser (requires Java and python)
-npm run build:antlr
-
-# Build TypeScript
-npm run build:ts
-
-# Or both
-npm run build
+npm install -g @jacobknightley/sparkfmt
 ```
 
 ## Usage
 
 ```bash
-# Format inline SQL
-node dist/cli.js -i "select * from t where x = 1"
+# Format a SQL file in-place
+sparkfmt query.sql
 
-# Format file
-node dist/cli.js query.sql
+# Format multiple files
+sparkfmt *.sql
 
-# Check if file needs formatting
-node dist/cli.js -c query.sql
+# Format a Fabric notebook (SQL cells formatted, code unchanged)
+sparkfmt notebook.py       # Python notebook
+sparkfmt notebook.scala    # Scala notebook
+sparkfmt notebook.r        # R notebook
+sparkfmt notebook.sql      # SQL notebook (formats raw SQL and MAGIC SQL cells)
 
-# Pipe from stdin
-echo "select * from t" | node dist/cli.js
+# Check if formatting needed (exit code 1 if changes needed)
+sparkfmt -c query.sql
 ```
 
-## Test
+```bash
+# Format inline SQL
+sparkfmt -i "select * from t"
+
+# Format from stdin
+echo "select * from t" | sparkfmt
+
+# Print to stdout instead of in-place
+sparkfmt --stdout query.sql
+```
+
+## Formatting Control
+
+### Skip Formatting with `noqa`
+
+```sql
+-- noqa
+select   x,y,z   from   t   -- Preserved exactly as-is
+```
+
+### Suppress Line Expansion with `noqa:expansion`
+
+```sql
+SELECT COALESCE(a, b, c, d, e, f, g, h, i, j) -- noqa:expansion
+FROM t
+```
+
+## Style Guide
+
+See [STYLE_GUIDE.md](STYLE_GUIDE.md) for complete formatting rules and examples.
+
+Key conventions:
+- 4-space indentation
+- 140-character line width threshold
+- Leading commas (comma-first)
+- `AS` for column aliases, no `AS` for table aliases
+- Keywords and built-in functions uppercase
+- User-defined functions preserve original casing
+
+---
+
+# Contributing
+
+## Development Setup
+
+### Prerequisites
+
+- Node.js 18+
+- Python 3.8+ (for ANTLR build script)
+- Java 11+ (for ANTLR code generation)
+
+### Build
 
 ```bash
+# Install dependencies
+npm install
+
+# Build everything (downloads grammar, generates parser, compiles TypeScript)
+npm run build
+
+# Or build steps individually:
+npm run build:antlr   # Download grammar & generate JS parser
+npm run build:ts      # Compile TypeScript
+```
+
+### Test
+
+```bash
+# Run all 316 tests
 npm test
+
+# Run with failure details
+npm run test:verbose
 ```
 
 ## Architecture
 
+The formatter is **100% grammar-driven** — the Apache Spark ANTLR grammar files are the single source of truth. No hardcoded keyword or function lists.
+
 ```
 Input SQL
     ↓
-Dual Lexing (uppercase for types, original for text)
+Dual Lexing (uppercase for token types, original for text)
     ↓
 ANTLR Parser (SqlBaseParser)
     ↓
 Parse Tree
     ↓
-ParseTreeAnalyzer (parse-tree-analyzer.ts)
+ParseTreeAnalyzer
     - Marks identifier positions
-    - Marks function call positions  
+    - Marks function call positions
     - Marks clause boundary positions
+    - Detects simple vs complex queries
     ↓
-Token Formatting (formatter.ts)
-    - Uses token-utils.ts for grammar-driven detection
-    - Uses formatting-context.ts for state management
-    - Uses output-builder.ts for output construction
+Token Formatter
+    - Grammar-driven keyword detection
+    - Context-aware casing
+    - Smart expansion decisions
     ↓
 Formatted SQL
 ```
 
-## Module Structure
+### Key Design Decisions
 
-The formatter is organized into focused modules optimized for maintainability:
+1. **Grammar-Driven Keywords**: A token is a keyword if `symbolicNames[tokenType] === text.toUpperCase()`
+2. **Parse Tree Context**: Visitor pattern identifies where tokens appear (identifier vs keyword position)
+3. **Dual Lexing**: Parse uppercase SQL for correct token types, but preserve original text
+4. **Modular Design**: ~200-400 line modules for maintainability
 
-| Module | Lines | Purpose |
-|--------|------:|---------|
-| `types.ts` | ~180 | Central interfaces (`AnalyzerResult`, `FormattingState`, etc.) |
-| `token-utils.ts` | ~120 | Grammar-derived token detection utilities |
-| `parse-tree-analyzer.ts` | ~850 | AST visitor that collects formatting context |
-| `formatting-context.ts` | ~230 | State management, indent calculator, expansion helpers |
-| `output-builder.ts` | ~130 | Output construction with column tracking |
-| `formatter.ts` | ~650 | Main orchestration & public API |
-| `constants.ts` | ~10 | Configuration constants (MAX_LINE_WIDTH) |
+### Module Overview
 
-## Files
+| Module | Purpose |
+|--------|---------|
+| `formatter.ts` | Main orchestration & public API |
+| `parse-tree-analyzer.ts` | AST visitor collecting formatting context |
+| `token-utils.ts` | Grammar-derived token detection |
+| `formatting-context.ts` | State management during formatting |
+| `output-builder.ts` | Output construction with column tracking |
+| `types.ts` | TypeScript interfaces |
+| `noqa-detector.ts` | Formatting suppression directives |
+| `magic-sql-extractor.ts` | Fabric notebook SQL cell handling |
+
+### Project Structure
 
 ```
 src/
-├── formatter.ts    # Main formatting logic (100% grammar-driven)
-├── cli.ts          # Command-line interface
-├── test.ts         # E2E tests (16 tests)
-├── index.ts        # Public exports
-└── generated/      # ANTLR-generated parser (gitignored)
+├── formatter.ts           # Main formatting logic
+├── parse-tree-analyzer.ts # Parse tree visitor
+├── types.ts               # TypeScript interfaces
+├── cli.ts                 # Command-line interface
+├── index.ts               # Public exports
+├── tests/                 # Test suites (316 tests)
+│   ├── framework.ts       # Test runner
+│   ├── index.ts           # Test entry point
+│   └── *.test.ts          # Test files by feature
+└── generated/             # ANTLR-generated parser
+
+grammar/                   # Apache Spark grammar (downloaded)
+├── SqlBaseLexer.g4
+└── SqlBaseParser.g4
+
+docs/
+└── TABLE_ALIAS_AS_ISSUE.md  # Known issues
 
 scripts/
-└── build_antlr_js.py  # Downloads grammar & generates parser
-
-grammar/               # Downloaded from Apache Spark (gitignored)
-├── SqlBaseLexer.g4    # Source of truth for keywords
-└── SqlBaseParser.g4   # Source of truth for grammar rules
+└── build_antlr_js.py      # Grammar download & parser generation
 ```
 
-## Grammar-Driven Architecture
+## Adding Tests
 
-The formatter uses **no hardcoded keyword or function lists**. Instead:
+Tests are organized by feature in `src/tests/`:
 
-1. **Keyword Detection**: A token is a keyword if `symbolicNames[tokenType] === text.toUpperCase()`
-2. **Identifier Context**: Parse tree visitor marks positions within `identifier`, `qualifiedName`, `functionCall` contexts
-3. **Clause Boundaries**: Parse tree visitor methods determine where clauses start for newline insertion
+```typescript
+// src/tests/my-feature.test.ts
+import { TestSuite } from './framework.js';
 
-This ensures if Spark's grammar supports it, the formatter supports it automatically.
+export const myFeatureTests: TestSuite = {
+    name: 'My Feature',
+    tests: [
+        {
+            name: 'Description of test case',
+            input: 'select ...',
+            expected: 'SELECT ...',
+        },
+    ],
+};
+```
 
-## Why JavaScript/TypeScript?
-
-The JavaScript ANTLR4 runtime handles the deep grammar recursion in Spark SQL efficiently through the JS engine's optimization, making it suitable for both Node.js and browser environments.
+Then import and add to `src/tests/index.ts`.
