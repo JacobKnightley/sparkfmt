@@ -19,11 +19,15 @@ from pathlib import Path
 from typing import Dict, List
 
 # Configuration
-SCRIPT_DIR = Path(__file__).parent  # scripts/
+SCRIPT_DIR = Path(__file__).parent  # .build/
 PROJECT_DIR = SCRIPT_DIR.parent  # project root
 GRAMMAR_DIR = PROJECT_DIR / "grammar"
 GENERATED_DIR = PROJECT_DIR / "src" / "generated"
-ANTLR_JAR = PROJECT_DIR / "antlr4.jar"
+ANTLR_JAR = SCRIPT_DIR / "antlr4.jar"  # Downloaded to .build/
+
+# ANTLR download URL
+ANTLR_VERSION = "4.13.2"
+ANTLR_DOWNLOAD_URL = f"https://www.antlr.org/download/antlr-{ANTLR_VERSION}-complete.jar"
 
 # Spark grammar download URLs
 SPARK_BRANCH = "master"
@@ -281,6 +285,22 @@ def transform_grammar():
     return True
 
 
+def download_antlr_jar():
+    """Download ANTLR jar if not present."""
+    if ANTLR_JAR.exists():
+        return True
+    
+    print(f"  Downloading ANTLR {ANTLR_VERSION}...")
+    try:
+        urllib.request.urlretrieve(ANTLR_DOWNLOAD_URL, ANTLR_JAR)
+        print(f"  ✓ Downloaded to {ANTLR_JAR.relative_to(PROJECT_DIR)}")
+        return True
+    except Exception as e:
+        print(f"  ERROR: Failed to download ANTLR: {e}")
+        print(f"  Manual download: {ANTLR_DOWNLOAD_URL}")
+        return False
+
+
 def generate_antlr():
     """Run ANTLR to generate JavaScript lexer/parser."""
     print("\n" + "=" * 60)
@@ -289,9 +309,7 @@ def generate_antlr():
     
     GENERATED_DIR.mkdir(parents=True, exist_ok=True)
     
-    if not ANTLR_JAR.exists():
-        print(f"  ERROR: {ANTLR_JAR} not found")
-        print(f"  Download from: https://www.antlr.org/download/antlr-4.13.2-complete.jar")
+    if not download_antlr_jar():
         return False
     
     # Run ANTLR with JavaScript target

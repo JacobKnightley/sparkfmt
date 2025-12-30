@@ -113,7 +113,7 @@ npm run build:ts      # Compile TypeScript
 ### Test
 
 ```bash
-# Run all 316 tests
+# Run all tests
 npm test
 
 # Run with failure details
@@ -176,7 +176,7 @@ src/
 ├── types.ts               # TypeScript interfaces
 ├── cli.ts                 # Command-line interface
 ├── index.ts               # Public exports
-├── tests/                 # Test suites (316 tests)
+├── tests/                 # Test suites (332 tests)
 │   ├── framework.ts       # Test runner
 │   ├── index.ts           # Test entry point
 │   └── *.test.ts          # Test files by feature
@@ -186,10 +186,7 @@ grammar/                   # Apache Spark grammar (downloaded)
 ├── SqlBaseLexer.g4
 └── SqlBaseParser.g4
 
-docs/
-└── TABLE_ALIAS_AS_ISSUE.md  # Known issues
-
-scripts/
+.build/
 └── build_antlr_js.py      # Grammar download & parser generation
 ```
 

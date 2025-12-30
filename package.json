@@ -1,6 +1,6 @@
 {
   "name": "@jacobknightley/sparkfmt",
-  "version": "0.1.0",
+  "version": "0.0.1",
   "type": "module",
   "description": "A fast, opinionated Apache Spark SQL formatter with zero configuration",
   "main": "dist/index.js",
@@ -25,20 +25,26 @@
     "formatter",
     "databricks",
     "fabric",
-    "delta-lake"
+    "delta-lake",
+    "antlr",
+    "linter"
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/your-org/sparkfmt"
+    "url": "https://github.com/jacobknightley/sparkfmt.git"
   },
+  "homepage": "https://github.com/jacobknightley/sparkfmt#readme",
+  "bugs": {
+    "url": "https://github.com/jacobknightley/sparkfmt/issues"
+  },
+  "author": "Jacob Knightley",
   "license": "MIT",
   "scripts": {
-    "build:antlr": "python scripts/build_antlr_js.py",
+    "build:antlr": "python .build/build_antlr_js.py",
     "build:ts": "tsc",
     "build": "npm run build:antlr && npm run build:ts",
     "test": "node dist/tests/index.js",
     "test:verbose": "node dist/tests/index.js --verbose",
-    "test:legacy": "node dist/test.js",
     "format": "node dist/cli.js"
   },
   "devDependencies": {

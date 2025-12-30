@@ -8,8 +8,7 @@ dist/
 src/generated/
 
 # ANTLR jar (downloaded at build time)
-antlr4.jar
-*.jar
+.build/antlr4.jar
 
 # Grammar files (downloaded from Apache Spark at build time)
 grammar/
@@ -38,3 +37,7 @@ example.sql
 # Debug files
 debug-*.mjs
 debug-*.js
+
+# Rust build artifacts (experimental)
+crates/
+target/

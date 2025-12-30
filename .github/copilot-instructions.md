@@ -146,7 +146,7 @@ The formatter is organized into focused modules (~200-400 lines each) for mainta
 | `src/token-utils.ts` | Grammar-derived token utilities |
 | `src/types.ts` | TypeScript interfaces for the formatter |
 | `src/tests/` | Modular test suites |
-| `scripts/build_antlr_js.py` | Generates JS parser from grammar |
+| `.build/build_antlr_js.py` | Generates JS parser from grammar |
 | `STYLE_GUIDE.md` | Formatting style reference |
 | `KNOWN_ISSUES.md` | Tracked bugs and limitations |
 
