@@ -43,3 +43,24 @@ export const basicSelectTests: TestSuite = {
         },
     ],
 };
+
+export const tablesampleTests: TestSuite = {
+    name: 'TABLESAMPLE',
+    tests: [
+        {
+            name: 'TABLESAMPLE PERCENT',
+            input: 'select * from t tablesample (10 percent)',
+            expected: 'SELECT * FROM t TABLESAMPLE (10 PERCENT)',
+        },
+        {
+            name: 'TABLESAMPLE BUCKET',
+            input: 'select * from t tablesample (bucket 1 out of 10)',
+            expected: 'SELECT * FROM t TABLESAMPLE (BUCKET 1 OUT OF 10)',
+        },
+        {
+            name: 'TABLESAMPLE ROWS',
+            input: 'select * from t tablesample (5 rows)',
+            expected: 'SELECT * FROM t TABLESAMPLE (5 ROWS)',
+        },
+    ],
+};

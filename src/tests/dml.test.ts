@@ -17,6 +17,11 @@ export const dmlTests: TestSuite = {
             expected: "INSERT INTO t VALUES\n(1, 'a')\n,(2, 'b')",
         },
         {
+            name: 'VALUES without SELECT (simple inline)',
+            input: 'values 1, 2, 3',
+            expected: 'VALUES 1, 2, 3',
+        },
+        {
             name: 'Single-item UPDATE SET (inline)',
             input: 'update t set x = 1 where z = 3',
             expected: 'UPDATE t\nSET x = 1\nWHERE z = 3',
@@ -35,5 +40,6 @@ export const dmlTests: TestSuite = {
             name: 'MERGE clause formatting',
             input: 'MERGE INTO target t USING source s ON t.id = s.id WHEN MATCHED THEN UPDATE SET val = s.val',
             expected: 'MERGE INTO target t\nUSING source s\nON t.id = s.id\nWHEN MATCHED THEN UPDATE SET val = s.val',
-        },    ],
+        },
+    ],
 };

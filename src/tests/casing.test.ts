@@ -74,3 +74,60 @@ export const aliasTests: TestSuite = {
         },
     ],
 };
+
+export const builtinFunctionCasingTests: TestSuite = {
+    name: 'Built-in Function Casing',
+    tests: [
+        // Map/Collection functions
+        {
+            name: 'MAP_KEYS function',
+            input: 'select map_keys(m) from t',
+            expected: 'SELECT MAP_KEYS(m) FROM t',
+        },
+        {
+            name: 'FLATTEN function',
+            input: 'select flatten(arr) from t',
+            expected: 'SELECT FLATTEN(arr) FROM t',
+        },
+        // JSON functions
+        {
+            name: 'JSON_OBJECT_KEYS function',
+            input: 'select json_object_keys(j) from t',
+            expected: 'SELECT JSON_OBJECT_KEYS(j) FROM t',
+        },
+        // Conditional functions
+        {
+            name: 'IF function',
+            input: 'select if(x > 0, 1, 0) from t',
+            expected: 'SELECT IF(x > 0, 1, 0) FROM t',
+        },
+        // Aggregate functions
+        {
+            name: 'STRING_AGG function',
+            input: "select string_agg(x, ',') from t",
+            expected: "SELECT STRING_AGG(x, ',') FROM t",
+        },
+        // Timezone conversion functions
+        {
+            name: 'FROM_UTC_TIMESTAMP function',
+            input: "select from_utc_timestamp(x, 'UTC') from t",
+            expected: "SELECT FROM_UTC_TIMESTAMP(x, 'UTC') FROM t",
+        },
+        {
+            name: 'TO_UTC_TIMESTAMP function',
+            input: "select to_utc_timestamp(x, 'America/New_York') from t",
+            expected: "SELECT TO_UTC_TIMESTAMP(x, 'America/New_York') FROM t",
+        },
+        // EXTRACT function (note: DAYOFWEEK is not in grammar's datetimeUnit)
+        {
+            name: 'EXTRACT with DAYOFWEEK (not in grammar)',
+            input: 'select extract(dayofweek from x) from t',
+            expected: 'SELECT EXTRACT(dayofweek FROM x) FROM t',
+        },
+        {
+            name: 'EXTRACT with YEAR',
+            input: 'select extract(year from x) from t',
+            expected: 'SELECT EXTRACT(YEAR FROM x) FROM t',
+        },
+    ],
+};

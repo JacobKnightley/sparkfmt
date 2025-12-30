@@ -41,5 +41,22 @@ export const ddlTests: TestSuite = {
             input: 'truncate table my_table',
             expected: 'TRUNCATE TABLE my_table',
         },
+        // Complex types in DDL
+        {
+            name: 'Complex types in DDL (ARRAY, MAP, STRUCT)',
+            input: 'create table t (a array<int>, b map<string, int>, c struct<x:int, y:string>)',
+            expected: 'CREATE TABLE t (\n     a ARRAY<INT>\n    ,b MAP<STRING, INT>\n    ,c STRUCT<x:INT, y:STRING>\n)',
+        },
+        {
+            name: 'Nested complex types in DDL',
+            input: 'create table t (a array<array<int> >, b map<string, struct<x:int> >)',
+            expected: 'CREATE TABLE t (\n     a ARRAY<ARRAY<INT>>\n    ,b MAP<STRING, STRUCT<x:INT>>\n)',
+        },
+        // CREATE FUNCTION
+        {
+            name: 'CREATE FUNCTION should not have space before parens',
+            input: 'create function f(x int) returns int return x + 1',
+            expected: 'CREATE FUNCTION f(x INT) RETURNS INT RETURN x + 1',
+        },
     ],
 };

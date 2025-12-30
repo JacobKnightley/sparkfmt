@@ -17,6 +17,11 @@ export const utilityTests: TestSuite = {
             expected: 'SHOW TABLES',
         },
         {
+            name: 'SHOW SYSTEM FUNCTIONS (SYSTEM not in grammar)',
+            input: 'show system functions',
+            expected: 'SHOW system FUNCTIONS',  // SYSTEM not in grammar
+        },
+        {
             name: 'DESCRIBE table',
             input: 'describe my_table',
             expected: 'DESCRIBE my_table',
@@ -37,8 +42,25 @@ export const utilityTests: TestSuite = {
             expected: 'ANALYZE TABLE t',
         },
         {
+            name: 'ANALYZE TABLE column list',
+            input: 'analyze table t compute statistics for columns a, b',
+            expected: 'ANALYZE TABLE t COMPUTE STATISTICS FOR COLUMNS a, b',
+        },
+        {
+            name: 'ANALYZE TABLE NOSCAN (NOSCAN not in grammar)',
+            input: 'analyze table t compute statistics noscan',
+            expected: 'ANALYZE TABLE t COMPUTE STATISTICS noscan',  // NOSCAN not in grammar
+        },
+        {
             name: 'SET config preserves lowercase',
             input: 'set spark.sql.shuffle.partitions = 200',
             expected: 'SET spark.sql.shuffle.partitions = 200',
-        },    ],
+        },
+        // TRANSFORM (Hive streaming)
+        {
+            name: 'TRANSFORM (Hive streaming)',
+            input: "select transform(a, b) using 'script.py' as (c, d) from t",
+            expected: "SELECT TRANSFORM(a, b) USING 'script.py' AS (c, d)\nFROM t",
+        },
+    ],
 };

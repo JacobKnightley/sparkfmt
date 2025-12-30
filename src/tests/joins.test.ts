@@ -59,5 +59,24 @@ export const joinTests: TestSuite = {
             input: 'select * from a join b on (a.id = b.id and a.type = b.type) or (a.alt_id = b.id)',
             expected: 'SELECT *\nFROM a\nJOIN b\n    ON (a.id = b.id AND a.type = b.type)\n    OR (a.alt_id = b.id)',
         },
+        
+        // Implicit cross join (comma-separated tables)
+        {
+            name: 'Implicit cross join should not have space before comma',
+            input: 'select * from a, b, c',
+            expected: 'SELECT * FROM a, b, c',
+        },
+        {
+            name: 'Multiple tables in FROM with WHERE',
+            input: 'select * from a, b, c where a.id = b.id and b.id = c.id',
+            expected: 'SELECT *\nFROM a, b, c\nWHERE\n    a.id = b.id\n    AND b.id = c.id',
+        },
+        
+        // LATERAL subquery
+        {
+            name: 'LATERAL subquery should not have space before comma',
+            input: 'select * from t, lateral (select * from s where s.id = t.id)',
+            expected: 'SELECT * FROM t, LATERAL (SELECT * FROM s WHERE s.id = t.id)',
+        },
     ],
 };

@@ -35,21 +35,12 @@ export const caseExpressionTests: TestSuite = {
             input: 'select case when a = 1 then case when b = 2 then \'x\' else \'y\' end else \'z\' end, c from t',
             expected: 'SELECT\n     CASE WHEN a = 1 THEN CASE WHEN b = 2 THEN \'x\' ELSE \'y\' END ELSE \'z\' END\n    ,c\nFROM t',
         },
-    ],
-};
-
-export const castTests: TestSuite = {
-    name: 'CAST and Type Conversion',
-    tests: [
+        
+        // Simple CASE expression (CASE value WHEN ... THEN ...)
         {
-            name: 'Double-colon cast (no spaces)',
-            input: 'select x::string, y from t',
-            expected: 'SELECT\n     x::STRING\n    ,y\nFROM t',
-        },
-        {
-            name: 'CAST (no space after name)',
-            input: 'select cast(x as string), y from t',
-            expected: 'SELECT\n     CAST(x AS STRING)\n    ,y\nFROM t',
+            name: 'Simple CASE expression value should be on same line as CASE',
+            input: 'select case x when 1 then a when 2 then b else c end from t',
+            expected: 'SELECT\n     CASE x\n        WHEN 1 THEN a\n        WHEN 2 THEN b\n        ELSE c\n     END\nFROM t',
         },
     ],
 };
@@ -71,6 +62,12 @@ export const literalTests: TestSuite = {
             name: 'TIMESTAMP literal',
             input: "select timestamp '2024-01-01 12:00:00', x from t",
             expected: "SELECT\n     TIMESTAMP '2024-01-01 12:00:00'\n    ,x\nFROM t",
+        },
+        // Decimal ending with dot
+        {
+            name: 'Decimal ending with dot should have space before FROM',
+            input: 'select 1. from dual',
+            expected: 'SELECT 1. FROM dual',
         },
     ],
 };
@@ -97,6 +94,18 @@ export const unaryOperatorTests: TestSuite = {
             name: 'Unary minus in expression',
             input: 'select a + -b, c from t',
             expected: 'SELECT\n     a + -b\n    ,c\nFROM t',
+        },
+        // Bitwise NOT
+        {
+            name: 'Bitwise NOT should not have space after tilde',
+            input: 'select ~a from t',
+            expected: 'SELECT ~a FROM t',
+        },
+        // Double negative (must have space to avoid being parsed as comment)
+        {
+            name: 'Double negative with space formats correctly',
+            input: 'select - -5 from t',
+            expected: 'SELECT - -5 FROM t',
         },
     ],
 };
@@ -169,6 +178,32 @@ export const arrayAccessTests: TestSuite = {
             name: 'Array access with expression',
             input: 'select arr[i + 1], b from t',
             expected: 'SELECT\n     arr[i + 1]\n    ,b\nFROM t',
+        },
+    ],
+};
+
+export const lambdaTests: TestSuite = {
+    name: 'Lambda Expressions',
+    tests: [
+        {
+            name: 'Lambda expression (TRANSFORM)',
+            input: 'select transform(arr, x -> x + 1) from t',
+            expected: 'SELECT TRANSFORM(arr, x -> x + 1) FROM t',
+        },
+        {
+            name: 'Lambda expression (FILTER)',
+            input: 'select filter(arr, x -> x > 0) from t',
+            expected: 'SELECT FILTER(arr, x -> x > 0) FROM t',
+        },
+        {
+            name: 'Lambda expression (AGGREGATE)',
+            input: 'select aggregate(arr, 0, (acc, x) -> acc + x) from t',
+            expected: 'SELECT AGGREGATE(arr, 0, (acc, x) -> acc + x) FROM t',
+        },
+        {
+            name: 'AGGREGATE with 4 args (with finish)',
+            input: 'select aggregate(arr, 0, (acc, x) -> acc + x, acc -> acc * 10) from t',
+            expected: 'SELECT AGGREGATE(arr, 0, (acc, x) -> acc + x, acc -> acc * 10) FROM t',
         },
     ],
 };

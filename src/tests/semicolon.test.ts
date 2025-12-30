@@ -45,6 +45,17 @@ export const semicolonTests: TestSuite = {
             name: 'Semicolon should not affect string literals',
             input: "select 'a;b' from t1",
             expected: "SELECT 'a;b' FROM t1"
-        }
+        },
+        // Edge case: multiple consecutive/leading semicolons
+        {
+            name: 'Multiple semicolons collapse to trailing semicolon',
+            input: ';;;',
+            expected: ';',
+        },
+        {
+            name: 'Leading semicolon is dropped',
+            input: '; select 1',
+            expected: 'SELECT 1',
+        },
     ]
 };

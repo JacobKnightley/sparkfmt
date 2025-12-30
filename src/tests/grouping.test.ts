@@ -74,3 +74,34 @@ export const groupByTests: TestSuite = {
         },
     ],
 };
+
+export const distributionTests: TestSuite = {
+    name: 'CLUSTER BY / DISTRIBUTE BY / SORT BY',
+    tests: [
+        {
+            name: 'CLUSTER BY',
+            input: 'select a, b from t cluster by a',
+            expected: 'SELECT\n     a\n    ,b\nFROM t CLUSTER BY a',
+        },
+        {
+            name: 'CLUSTER BY single column stays inline',
+            input: 'select * from t cluster by x',
+            expected: 'SELECT * FROM t CLUSTER BY x',
+        },
+        {
+            name: 'DISTRIBUTE BY SORT BY',
+            input: 'select a, b from t distribute by a sort by b',
+            expected: 'SELECT\n     a\n    ,b\nFROM t DISTRIBUTE BY a SORT BY b',
+        },
+        {
+            name: 'DISTRIBUTE BY single column stays inline',
+            input: 'select * from t distribute by x',
+            expected: 'SELECT * FROM t DISTRIBUTE BY x',
+        },
+        {
+            name: 'SORT BY single column stays inline',
+            input: 'select * from t sort by x',
+            expected: 'SELECT * FROM t SORT BY x',
+        },
+    ],
+};

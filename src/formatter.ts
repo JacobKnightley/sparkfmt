@@ -880,6 +880,14 @@ function determineOutputText(
         return isBuiltIn ? text.toUpperCase() : text;
     }
     
+    // Structural keywords that should always be uppercase, even in identifier contexts.
+    // These are syntactic markers, not actual identifier names.
+    // e.g., "LATERAL VIEW EXPLODE(arr) AS item" - AS is a keyword, not an identifier.
+    const structuralKeywords = new Set(['AS', 'ON', 'AND', 'OR', 'IN', 'FOR', 'USING']);
+    if (symbolicName && structuralKeywords.has(symbolicName)) {
+        return text.toUpperCase();
+    }
+    
     // Identifier context - preserve casing
     // When a token is marked as identifier by the parse tree, it means the grammar
     // is using it as an identifier (column name, table name, etc.), so preserve casing.

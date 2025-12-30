@@ -84,5 +84,38 @@ export const whereTests: TestSuite = {
             input: 'select a, b from t where name like \'%test%\' escape \'!\' and status = 1',
             expected: 'SELECT\n     a\n    ,b\nFROM t\nWHERE\n    name LIKE \'%test%\' ESCAPE \'!\'\n    AND status = 1',
         },
+        
+        // LIKE with ALL/ANY/SOME quantifiers
+        {
+            name: 'ALL keyword in LIKE predicate',
+            input: 'select * from t where x like all (a, b, c)',
+            expected: 'SELECT * FROM t WHERE x LIKE ALL (a, b, c)',
+        },
+        {
+            name: 'ANY keyword in LIKE predicate',
+            input: 'select * from t where x like any (a, b, c)',
+            expected: 'SELECT * FROM t WHERE x LIKE ANY (a, b, c)',
+        },
+        {
+            name: 'SOME keyword in LIKE predicate',
+            input: 'select * from t where x like some (a, b, c)',
+            expected: 'SELECT * FROM t WHERE x LIKE SOME (a, b, c)',
+        },
+    ],
+};
+
+export const selectExceptTests: TestSuite = {
+    name: 'SELECT EXCEPT Column Exclusion',
+    tests: [
+        {
+            name: 'EXCEPT columns on qualified star should not expand',
+            input: 'select t.* except (a, b) from t',
+            expected: 'SELECT t.* EXCEPT (a, b) FROM t',
+        },
+        {
+            name: 'EXCEPT with unqualified star',
+            input: 'select * except (col1, col2) from t',
+            expected: 'SELECT * EXCEPT (col1, col2) FROM t',
+        },
     ],
 };
