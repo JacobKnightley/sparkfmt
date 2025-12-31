@@ -44,7 +44,28 @@ echo "select * from t" | fabfmt check --type sparksql   # Check from stdin
 
 ## Browser Extension
 
-Install the extension from the Chrome Web Store (coming soon) or load unpacked from `packages/chromium/dist`.
+Format Fabric notebooks directly in your browser with a single click.
+
+### Installation
+
+1. Download `fabricfmt-chromium.zip` from the [latest release](https://github.com/jacobknightley/fabricfmt/releases)
+2. Extract the zip file
+3. Open your browser's extension page:
+   - **Chrome:** `chrome://extensions`
+   - **Edge:** `edge://extensions`
+4. Enable **Developer mode** (toggle in top-right)
+5. Click **Load unpacked** and select the extracted folder
+
+> **Note:** Plan to eventually support directly in Chrome and Edge extension stores.
+
+### Usage
+
+1. Open a notebook in Microsoft Fabric
+2. Click the **Format** button in the notebook toolbar
+
+   ![Format button in Fabric notebook toolbar](assets/extension-format-button.png)
+
+3. All cells in the notebook are formatted instantly
 
 ## Supported File Types
 
