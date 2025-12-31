@@ -2,10 +2,10 @@
 /**
  * CLI for Spark SQL & Python Formatter
  */
-import { formatSql } from './formatter.js';
+import { formatSql } from './formatters/sql/index.js';
 import { formatNotebook, formatFabricNotebook } from './notebook-formatter.js';
 import { getPythonFormatter } from './formatters/index.js';
-import { loadRuffConfig } from './config.js';
+import { loadRuffConfig } from './formatters/python/index.js';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as readline from 'readline';

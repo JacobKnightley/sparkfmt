@@ -6,7 +6,7 @@
 
 import { TestSuite, TestCase } from '../framework.js';
 import { extractMagicSqlCells, formatFabricNotebook } from '../../magic-sql-extractor.js';
-import { formatSql } from '../../formatter.js';
+import { formatSql } from '../../formatters/sql/index.js';
 
 // Helper: create a test that uses formatFabricNotebook
 function fabricTest(name: string, input: string, expected: string): TestCase {

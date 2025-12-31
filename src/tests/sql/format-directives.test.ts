@@ -121,5 +121,65 @@ export const fmtInlineTests: TestSuite = {
             input: 'SELECT Function(a,b,c), ColB /*fmt:inline*/ FROM t',
             expected: 'SELECT\n     FUNCTION(a, b, c)\n    ,ColB /*fmt:inline*/\nFROM t',
         },
+        // Active collapse tests - multi-line input should collapse with fmt:inline
+        {
+            name: 'Active collapse: multi-line COALESCE collapses to single line',
+            input: `SELECT COALESCE(
+    very_long_column_name_a,
+    very_long_column_name_b,
+    very_long_column_name_c,
+    very_long_column_name_d
+) -- fmt: inline
+FROM t`,
+            expected: 'SELECT COALESCE(very_long_column_name_a, very_long_column_name_b, very_long_column_name_c, very_long_column_name_d) -- fmt: inline\nFROM t',
+        },
+        {
+            name: 'Active collapse: expanded function collapses with fmt:inline',
+            input: `SELECT CONCAT(
+    a,
+    b,
+    c,
+    d,
+    e
+) --fmt:inline
+FROM t`,
+            expected: 'SELECT CONCAT(a, b, c, d, e) --fmt:inline\nFROM t',
+        },
+        {
+            name: 'Active collapse: window function collapses',
+            input: `SELECT ROW_NUMBER() OVER (
+    PARTITION BY a, b, c
+    ORDER BY x, y
+) -- fmt: inline
+FROM t`,
+            expected: 'SELECT ROW_NUMBER() OVER (PARTITION BY a, b, c ORDER BY x, y) -- fmt: inline\nFROM t',
+        },
+        {
+            name: 'Active collapse: block comment style also collapses',
+            input: `SELECT COALESCE(
+    a,
+    b,
+    c,
+    d
+) /* fmt: inline */
+FROM t`,
+            expected: 'SELECT COALESCE(a, b, c, d) /* fmt: inline */ FROM t',
+        },
+        {
+            name: 'Active collapse: only affects the targeted function',
+            input: `SELECT 
+    COALESCE(
+        col_a,
+        col_b,
+        col_c
+    ) -- fmt: inline
+    ,CONCAT(
+        x,
+        y,
+        z
+    )
+FROM t`,
+            expected: 'SELECT\n     COALESCE(col_a, col_b, col_c) -- fmt: inline\n    ,CONCAT(x, y, z)\nFROM t',
+        },
     ],
 };

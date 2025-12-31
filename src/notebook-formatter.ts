@@ -32,7 +32,7 @@
  */
 
 import { getFormatterRegistry, detectLanguage } from './formatters/index.js';
-import { formatSql as formatSqlDirect } from './formatter.js';
+import { formatSql as formatSqlDirect } from './formatters/sql/index.js';
 import type { FormatResult } from './formatters/types.js';
 
 /** Language-specific comment prefixes */

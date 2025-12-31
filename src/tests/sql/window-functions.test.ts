@@ -5,7 +5,7 @@
  * frame specifications, and null handling modifiers.
  */
 import { TestSuite } from '../framework.js';
-import { formatSql } from '../../formatter.js';
+import { formatSql } from '../../formatters/sql/index.js';
 
 export const windowFunctionTests: TestSuite = {
     name: 'Window Functions',

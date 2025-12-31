@@ -22,7 +22,7 @@ from typing import Dict, List
 SCRIPT_DIR = Path(__file__).parent  # .build/
 PROJECT_DIR = SCRIPT_DIR.parent  # project root
 GRAMMAR_DIR = PROJECT_DIR / "grammar"
-GENERATED_DIR = PROJECT_DIR / "src" / "generated"
+GENERATED_DIR = PROJECT_DIR / "src" / "formatters" / "sql" / "generated"
 ANTLR_JAR = SCRIPT_DIR / "antlr4.jar"  # Downloaded to .build/
 
 # ANTLR download URL

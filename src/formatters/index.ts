@@ -6,8 +6,8 @@
  */
 
 import type { LanguageFormatter, FormatterRegistry } from './types.js';
-import { SqlFormatter, getSqlFormatter, isSqlCode } from './sql-formatter.js';
-import { PythonFormatter, getPythonFormatter, isPythonCode } from './python-formatter.js';
+import { SqlFormatter, getSqlFormatter, isSqlCode } from './sql/index.js';
+import { PythonFormatter, getPythonFormatter, isPythonCode } from './python/index.js';
 
 // Re-export types
 export type { 
@@ -19,8 +19,8 @@ export type {
 } from './types.js';
 
 // Re-export formatters
-export { SqlFormatter, getSqlFormatter, isSqlCode } from './sql-formatter.js';
-export { PythonFormatter, getPythonFormatter, isPythonCode } from './python-formatter.js';
+export { SqlFormatter, getSqlFormatter, isSqlCode } from './sql/index.js';
+export { PythonFormatter, getPythonFormatter, isPythonCode } from './python/index.js';
 
 /**
  * Default formatter registry implementation.

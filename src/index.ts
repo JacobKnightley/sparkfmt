@@ -5,17 +5,16 @@
  * Microsoft Fabric notebooks and CI/CD pipelines.
  * 
  * Architecture:
- * - formatters/: Language-specific formatters (SQL, Python, extensible to others)
- * - formatter.ts: Core SQL formatting (ANTLR grammar-driven)
+ * - formatters/sql/: Core SQL formatting (ANTLR grammar-driven)
+ * - formatters/python/: Python formatting via Ruff WASM
  * - notebook-formatter.ts: Fabric notebook handling
- * - config.ts: Configuration loading (ruff.toml, pyproject.toml)
  */
 
 // ============================================================================
 // SQL Formatter (Core API)
 // ============================================================================
 
-export { formatSql, needsFormatting } from './formatter.js';
+export { formatSql, needsFormatting } from './formatters/sql/index.js';
 
 // ============================================================================
 // Language Formatters (Extensible)
@@ -64,7 +63,7 @@ export {
 } from './notebook-formatter.js';
 
 // ============================================================================
-// Configuration
+// Configuration (Python/Ruff)
 // ============================================================================
 
 export {
@@ -73,10 +72,10 @@ export {
     DEFAULT_RUFF_CONFIG,
     type RuffConfig,
     type RuffFormatConfig,
-} from './config.js';
+} from './formatters/python/index.js';
 
 // ============================================================================
-// Format Directives
+// Format Directives (SQL)
 // ============================================================================
 
 export { 
@@ -84,7 +83,7 @@ export {
     detectCollapseDirectives, 
     hasCollapseDirective, 
     type FormatDirectiveInfo 
-} from './noqa-detector.js';
+} from './formatters/sql/index.js';
 
 // ============================================================================
 // Types (for library consumers)
@@ -99,4 +98,4 @@ export type {
     PendingComment,
     ExpandedFunction,
     ExpandedWindow
-} from './types.js';
+} from './formatters/sql/types.js';

@@ -3,7 +3,7 @@
  * 
  * Runs all test suites and reports results.
  */
-import { formatSql } from '../formatter.js';
+import { formatSql } from '../formatters/sql/index.js';
 import { runSuite, printSuiteResult, printSummary, SuiteResult } from './framework.js';
 
 // Import all SQL test suites

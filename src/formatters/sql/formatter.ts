@@ -46,7 +46,7 @@ import {
 } from './output-builder.js';
 import { SPARK_BUILTIN_FUNCTIONS } from './generated/builtinFunctions.js';
 import { MAX_LINE_WIDTH } from './constants.js';
-import { hasFormatOff, detectCollapseDirectives, type FormatDirectiveInfo } from './noqa-detector.js';
+import { hasFormatOff, detectCollapseDirectives, isFmtInlineComment, type FormatDirectiveInfo, type ForceInlineRange } from './fmt-detector.js';
 import type { AnalyzerResult, ExpandedFunction, ExpandedWindow, ExpandedPivot, PendingComment, MultiArgFunctionInfo, PivotInfo, InListInfo } from './types.js';
 
 // ============================================================================
@@ -304,6 +304,10 @@ function formatTokens(
     let currentExpandedWindow: ExpandedWindow | null = null;
     let currentExpandedPivot: ExpandedPivot | null = null;
     let lastProcessedIndex = -1;
+    
+    // Populate force-inline ranges from fmt:inline comments (grammar-driven approach)
+    const forceInlineRanges = findForceInlineRanges(allOrigTokens, analysis);
+    formatDirectives.forceInlineRanges = forceInlineRanges;
     
     // IN list wrapping state
     // Maps open paren index -> { wrapIndent, closeParenIndex, commaIndices }
@@ -676,9 +680,11 @@ function formatTokens(
         }
         
         // Handle multi-arg function expansion
-        // Check if this token's line has fmt:inline to suppress expansion
+        // Check if this token is force-inline (either line-based legacy or grammar-driven)
         const tokenLine = allOrigTokens[i]?.line || 0;
-        const forceCollapse = formatDirectives.collapsedLines.has(tokenLine);
+        const lineBasedForceCollapse = formatDirectives.collapsedLines.has(tokenLine);
+        const grammarBasedForceCollapse = isForceInlineOpen(tokenIndex, forceInlineRanges);
+        const forceCollapse = lineBasedForceCollapse || grammarBasedForceCollapse;
         
         if (multiArgFuncInfo && !forceCollapse && shouldExpandFunction(builder.getColumn(), multiArgFuncInfo)) {
             handleFunctionExpansion(builder, expandedFuncs, multiArgFuncInfo, tokenList, i, findNextNonWsTokenIndex, analysis, state);
@@ -800,6 +806,100 @@ function isInListComma(tokenIndex: number, analysis: AnalyzerResult): boolean {
         }
     }
     return false;
+}
+
+/**
+ * Scan tokens for fmt:inline comments and find their enclosing expressions.
+ * Returns an array of ForceInlineRange for expressions that should not be expanded.
+ * 
+ * The approach:
+ * 1. Find all comment tokens that contain fmt:inline
+ * 2. For each such comment, find the immediately preceding token (or same position)
+ * 3. Check if that token is within any multi-arg function, window def, or pivot
+ * 4. If so, add that construct's token range to the force-inline ranges
+ */
+function findForceInlineRanges(
+    allOrigTokens: any[],
+    analysis: AnalyzerResult
+): ForceInlineRange[] {
+    const ranges: ForceInlineRange[] = [];
+    const addedRanges = new Set<string>(); // Avoid duplicates: "open-close"
+    
+    // Helper to add a range if not already added
+    const addRange = (openIdx: number, closeIdx: number) => {
+        const key = `${openIdx}-${closeIdx}`;
+        if (!addedRanges.has(key)) {
+            addedRanges.add(key);
+            ranges.push({ openTokenIndex: openIdx, closeTokenIndex: closeIdx });
+        }
+    };
+    
+    // Scan all tokens for fmt:inline comments
+    for (let i = 0; i < allOrigTokens.length; i++) {
+        const token = allOrigTokens[i];
+        if (!token) continue;
+        
+        // Check if this is a comment with fmt:inline
+        if (token.type === SqlBaseLexer.SIMPLE_COMMENT || 
+            token.type === SqlBaseLexer.BRACKETED_COMMENT) {
+            if (isFmtInlineComment(token.text || '')) {
+                // Found a fmt:inline comment at token index i
+                // Find the closest preceding non-WS, non-comment token
+                let precedingTokenIdx = i - 1;
+                while (precedingTokenIdx >= 0) {
+                    const prevToken = allOrigTokens[precedingTokenIdx];
+                    if (prevToken && 
+                        prevToken.type !== SqlBaseLexer.WS &&
+                        prevToken.type !== SqlBaseLexer.SIMPLE_COMMENT &&
+                        prevToken.type !== SqlBaseLexer.BRACKETED_COMMENT) {
+                        break;
+                    }
+                    precedingTokenIdx--;
+                }
+                
+                // Now find which expression (if any) contains this position
+                // Check multi-arg functions
+                for (const [openIdx, info] of analysis.multiArgFunctionInfo) {
+                    if (precedingTokenIdx >= openIdx && precedingTokenIdx <= info.closeParenIndex) {
+                        addRange(openIdx, info.closeParenIndex);
+                    }
+                    // Also check if comment is right after close paren (common placement)
+                    if (precedingTokenIdx === info.closeParenIndex) {
+                        addRange(openIdx, info.closeParenIndex);
+                    }
+                }
+                
+                // Check window definitions
+                for (const [openIdx, info] of analysis.windowDefInfo) {
+                    if (precedingTokenIdx >= openIdx && precedingTokenIdx <= info.closeParenIndex) {
+                        addRange(openIdx, info.closeParenIndex);
+                    }
+                    if (precedingTokenIdx === info.closeParenIndex) {
+                        addRange(openIdx, info.closeParenIndex);
+                    }
+                }
+                
+                // Check PIVOT/UNPIVOT
+                for (const [openIdx, info] of analysis.pivotInfo) {
+                    if (precedingTokenIdx >= openIdx && precedingTokenIdx <= info.closeParenIndex) {
+                        addRange(openIdx, info.closeParenIndex);
+                    }
+                    if (precedingTokenIdx === info.closeParenIndex) {
+                        addRange(openIdx, info.closeParenIndex);
+                    }
+                }
+            }
+        }
+    }
+    
+    return ranges;
+}
+
+/**
+ * Check if a token index is the opening of a force-inline expression.
+ */
+function isForceInlineOpen(tokenIndex: number, ranges: ForceInlineRange[]): boolean {
+    return ranges.some(r => r.openTokenIndex === tokenIndex);
 }
 
 /**

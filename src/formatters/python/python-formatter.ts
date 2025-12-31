@@ -5,8 +5,8 @@
  * Handles Jupyter/IPython magic commands by preserving them.
  */
 
-import type { LanguageFormatter, FormatterOptions, FormatResult } from './types.js';
-import { loadRuffConfig, toRuffWasmConfig, type RuffConfig } from '../config.js';
+import type { LanguageFormatter, FormatterOptions, FormatResult } from '../types.js';
+import { loadRuffConfig, toRuffWasmConfig, type RuffConfig } from './config.js';
 
 // Dynamic import for ruff WASM (loaded on demand)
 let ruffModule: typeof import('@astral-sh/ruff-wasm-nodejs') | null = null;

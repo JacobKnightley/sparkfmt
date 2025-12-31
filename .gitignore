@@ -5,7 +5,7 @@ node_modules/
 dist/
 
 # ANTLR generated files
-src/generated/
+src/formatters/sql/generated/
 
 # ANTLR jar (downloaded at build time)
 .build/antlr4.jar

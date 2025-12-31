@@ -4,8 +4,8 @@
  * Wraps the existing sparkfmt SQL formatter to implement the LanguageFormatter interface.
  */
 
-import type { LanguageFormatter, FormatterOptions, FormatResult } from './types.js';
-import { formatSql, needsFormatting } from '../formatter.js';
+import type { LanguageFormatter, FormatterOptions, FormatResult } from '../types.js';
+import { formatSql, needsFormatting } from './index.js';
 
 /**
  * SQL formatter for Spark SQL.
