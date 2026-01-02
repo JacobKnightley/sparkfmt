@@ -518,16 +518,31 @@ function replaceCell(
     const lines = fileContent.split(/\r?\n/);
     
     let newLines: string[];
-    if (cell.isMagicCell) {
-        newLines = addMagicPrefix(formattedContent, config);
+    if (cell.isMagicCell && cell.magicCommand) {
+        // For magic cells, prepend the magic command (without trailing whitespace)
+        const magicCommandLine = config.magicPrefix + '%%' + cell.magicCommand;
+        newLines = [magicCommandLine, ...addMagicPrefix(formattedContent, config)];
+        
+        // Find where the magic command line starts (search backwards from contentStartLine)
+        let magicLineIndex = cell.contentStartLine - 1;
+        while (magicLineIndex >= 0 && !lines[magicLineIndex].trim().startsWith(config.magicPrefix + '%%')) {
+            magicLineIndex--;
+        }
+        
+        const before = lines.slice(0, magicLineIndex >= 0 ? magicLineIndex : cell.contentStartLine);
+        const after = lines.slice(cell.contentEndLine + 1);
+        
+        return [...before, ...newLines, ...after].join(LINE_ENDING);
     } else {
-        newLines = formattedContent.split(/\r?\n/);
+        newLines = cell.isMagicCell 
+            ? addMagicPrefix(formattedContent, config)
+            : formattedContent.split(/\r?\n/);
+        
+        const before = lines.slice(0, cell.contentStartLine);
+        const after = lines.slice(cell.contentEndLine + 1);
+        
+        return [...before, ...newLines, ...after].join(LINE_ENDING);
     }
-    
-    const before = lines.slice(0, cell.contentStartLine);
-    const after = lines.slice(cell.contentEndLine + 1);
-    
-    return [...before, ...newLines, ...after].join(LINE_ENDING);
 }
 
 /**
