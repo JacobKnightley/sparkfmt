@@ -49,6 +49,7 @@ export {
 
 export {
     formatCell,
+    formatCellAsync,
     formatCellSync,
     initializePythonFormatter,
     isPythonFormatterReady,

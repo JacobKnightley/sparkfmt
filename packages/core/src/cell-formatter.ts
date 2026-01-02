@@ -217,3 +217,42 @@ export function formatCell(content: string, cellType: CellType): FormatCellResul
 export function formatCellSync(content: string, cellType: 'sparksql'): FormatCellResult {
     return formatCell(content, cellType);
 }
+
+/**
+ * Async version of formatCell that waits for Python formatter initialization.
+ * 
+ * Use this when you're not sure if the Python formatter is initialized yet.
+ * It will wait for any in-progress initialization to complete before formatting.
+ * 
+ * @param content Raw cell content
+ * @param cellType The cell type from metadata
+ * @returns Promise resolving to formatted content and status
+ * 
+ * @example
+ * ```typescript
+ * // Safe to call even if init is in progress
+ * initializePythonFormatter(); // Note: not awaited
+ * const result = await formatCellAsync('x=1', 'python');
+ * console.log(result.formatted); // 'x = 1'
+ * ```
+ */
+export async function formatCellAsync(content: string, cellType: CellType): Promise<FormatCellResult> {
+    const type = cellType.toLowerCase() as CellType;
+    
+    // For Python/PySpark, wait for initialization if in progress
+    if (type === 'python' || type === 'pyspark') {
+        if (pythonFormatterInitPromise) {
+            try {
+                await pythonFormatterInitPromise;
+            } catch (error) {
+                return {
+                    formatted: content,
+                    changed: false,
+                    error: `Python formatter initialization failed: ${error}`,
+                };
+            }
+        }
+    }
+    
+    return formatCell(content, cellType);
+}

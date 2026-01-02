@@ -11,6 +11,7 @@ import {
     getPythonFormatterInitPromise,
     resetPythonFormatterState,
     formatCell,
+    formatCellAsync,
 } from '../../cell-formatter.js';
 import { resetPythonFormatter, getPythonFormatter } from '../../formatters/python/index.js';
 
@@ -202,6 +203,68 @@ const initTests: InitTestCase[] = [
             }
             
             return { passed: true };
+        },
+    },
+    {
+        name: 'formatCellAsync waits for in-progress initialization',
+        test: async () => {
+            // Reset state to simulate fresh state
+            resetPythonFormatterState();
+            
+            // Start initialization but DON'T await it
+            const initPromise = initializePythonFormatter();
+            
+            // Immediately call formatCellAsync - it should wait for init
+            const formatPromise = formatCellAsync('z=3', 'python');
+            
+            // Wait for format to complete (which should wait for init)
+            const result = await formatPromise;
+            
+            // Also wait for init to ensure no dangling promises
+            await initPromise;
+            
+            if (result.error) {
+                return { passed: false, message: `Format error: ${result.error}` };
+            }
+            
+            return { 
+                passed: result.formatted === 'z = 3',
+                message: result.formatted !== 'z = 3' ? `Got: "${result.formatted}"` : undefined,
+            };
+        },
+    },
+    {
+        name: 'formatCellAsync works when formatter already initialized',
+        test: async () => {
+            // Ensure formatter is initialized
+            await initializePythonFormatter();
+            
+            const result = await formatCellAsync('a=1', 'python');
+            
+            if (result.error) {
+                return { passed: false, message: `Format error: ${result.error}` };
+            }
+            
+            return { 
+                passed: result.formatted === 'a = 1',
+                message: result.formatted !== 'a = 1' ? `Got: "${result.formatted}"` : undefined,
+            };
+        },
+    },
+    {
+        name: 'formatCellAsync with SQL does not require Python initialization',
+        test: async () => {
+            // Even without Python init, SQL should work
+            const result = await formatCellAsync('select * from t', 'sparksql');
+            
+            if (result.error) {
+                return { passed: false, message: `Format error: ${result.error}` };
+            }
+            
+            return { 
+                passed: result.formatted === 'SELECT * FROM t',
+                message: result.formatted !== 'SELECT * FROM t' ? `Got: "${result.formatted}"` : undefined,
+            };
         },
     },
 ];
