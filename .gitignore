@@ -45,5 +45,3 @@ debug-*.js
 # Rust build artifacts (experimental)
 crates/
 target/
-
-package-lock.json
