@@ -9,7 +9,7 @@
     "watch": "node build.js --watch"
   },
   "devDependencies": {
-    "esbuild": "^0.24.0"
+    "esbuild": "^0.27.2"
   },
   "keywords": [
     "formatter",
