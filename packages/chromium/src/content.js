@@ -11,9 +11,10 @@ import { formatCell, initializePythonFormatter } from '@jacobknightley/fabric-fo
 // ============================================================================
 
 /**
- * Debug mode toggle - set to true during development for verbose logging
+ * Debug mode - enabled in development builds, disabled in production.
+ * Controlled by esbuild's define of process.env.NODE_ENV.
  */
-const DEBUG_MODE = true;
+const DEBUG_MODE = process.env.NODE_ENV === 'development';
 
 const log = {
   /** Always shown - important state changes and results */

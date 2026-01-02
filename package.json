@@ -8,7 +8,9 @@
     "build": "npm run build -w @jacobknightley/fabric-format && npm run build -w fabric-format-chromium",
     "build:core": "npm run build -w @jacobknightley/fabric-format",
     "build:chromium": "npm run build -w fabric-format-chromium",
-    "test": "npm run test -w @jacobknightley/fabric-format",
+    "test": "npm run test -w @jacobknightley/fabric-format && npm run test -w fabric-format-chromium",
+    "test:core": "npm run test -w @jacobknightley/fabric-format",
+    "test:chromium": "npm run test -w fabric-format-chromium",
     "package:chromium": "npm run package -w fabric-format-chromium",
     "release": "node scripts/release.js"
   }

@@ -6,10 +6,12 @@
   "scripts": {
     "build:readme": "node -e \"require('fs').copyFileSync('../../README.md', './README.md')\"",
     "build": "npm run build:readme && node build.js",
-    "watch": "node build.js --watch"
+    "watch": "node build.js --watch",
+    "test": "node src/content.test.js"
   },
   "devDependencies": {
-    "esbuild": "^0.27.2"
+    "esbuild": "^0.27.2",
+    "jsdom": "^26.0.0"
   },
   "keywords": [
     "formatter",
