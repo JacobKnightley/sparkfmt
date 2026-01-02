@@ -96,6 +96,10 @@ Only `blocks` dependencies affect the ready work queue.
 - **TypeScript**: Strict mode enabled
 - **Modules**: Keep to ~200-400 lines for maintainability
 
+### Browser Extension Debugging
+
+When debugging `packages/chromium`, remember that content scripts run in an **isolated context**. You cannot execute scripts directly in DevTools console against the extension's context—the page's JavaScript world and the extension's world are separate.
+
 ### File Organization
 
 ```
@@ -192,10 +196,7 @@ tests/
 
 - **README.md** - Main documentation (keep this updated!)
 - **SQL_STYLE_GUIDE.md** - SQL formatting style reference
-- **packages/core/grammar/\*.g4** - ANTLR grammar (SQL source of truth)
-- **packages/core/src/formatters/sparksql/** - SQL formatter modules
-- **packages/core/src/formatters/python/** - Python formatter (Ruff wrapper)
-- **packages/core/src/cell-formatter.ts** - Language detection & routing
+- **CONTRIBUTING.md** - Contribution guidelines
 
 ## Pro Tips for Agents
 
