@@ -56,31 +56,52 @@ let pythonFormatterInitPromise: Promise<void> | null = null;
  * Initialize the Python formatter (must be called before formatting Python cells).
  * This is async because the Ruff WASM module needs to be loaded.
  * 
+ * This function is idempotent and safe to call concurrently - all callers will
+ * wait for the same initialization promise.
+ * 
  * @param options - Optional WASM initialization options for browser environments.
  *   - wasmUrl: URL to the .wasm file (use this in Chrome extensions with chrome.runtime.getURL)
  *   - wasmBinary: WASM binary as ArrayBuffer or Uint8Array (for sync initialization)
  */
 export async function initializePythonFormatter(options?: WasmInitOptions): Promise<void> {
+    // Fast path: already initialized
     if (pythonFormatterReady) return;
-    if (pythonFormatterInitPromise) return pythonFormatterInitPromise;
     
+    // If initialization is in progress, wait for it
+    if (pythonFormatterInitPromise) {
+        return pythonFormatterInitPromise;
+    }
+    
+    // Create the initialization promise and store it IMMEDIATELY (synchronously)
+    // This ensures any concurrent calls will see this promise and wait for it
+    // rather than starting their own initialization.
+    // 
+    // Note: In JavaScript's single-threaded model, there's no preemption between
+    // the check above and this assignment, so this is safe. The promise is stored
+    // before any await yields control.
     pythonFormatterInitPromise = (async () => {
-        // If options provided, reset the formatter to use new options
-        if (options) {
-            resetPythonFormatter();
+        try {
+            // If options provided, reset the formatter to use new options
+            if (options) {
+                resetPythonFormatter();
+            }
+            
+            // Get or create the formatter with options
+            const pythonFormatter = getPythonFormatter(options);
+            
+            // Re-register in the registry so formatCell uses the correct instance
+            const registry = getFormatterRegistry();
+            registry.register(pythonFormatter);
+            
+            if (!pythonFormatter.isReady()) {
+                await pythonFormatter.initialize();
+            }
+            pythonFormatterReady = true;
+        } catch (error) {
+            // Reset promise on failure so retry is possible
+            pythonFormatterInitPromise = null;
+            throw error;
         }
-        
-        // Get or create the formatter with options
-        const pythonFormatter = getPythonFormatter(options);
-        
-        // Re-register in the registry so formatCell uses the correct instance
-        const registry = getFormatterRegistry();
-        registry.register(pythonFormatter);
-        
-        if (!pythonFormatter.isReady()) {
-            await pythonFormatter.initialize();
-        }
-        pythonFormatterReady = true;
     })();
     
     return pythonFormatterInitPromise;
@@ -91,6 +112,24 @@ export async function initializePythonFormatter(options?: WasmInitOptions): Prom
  */
 export function isPythonFormatterReady(): boolean {
     return pythonFormatterReady;
+}
+
+/**
+ * Get the current initialization promise (for testing/internal use).
+ * Returns null if initialization has not started.
+ */
+export function getPythonFormatterInitPromise(): Promise<void> | null {
+    return pythonFormatterInitPromise;
+}
+
+/**
+ * Reset the Python formatter state (for testing only).
+ * This allows re-initialization with different options.
+ */
+export function resetPythonFormatterState(): void {
+    pythonFormatterReady = false;
+    pythonFormatterInitPromise = null;
+    resetPythonFormatter();
 }
 
 // ============================================================================

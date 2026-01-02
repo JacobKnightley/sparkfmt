@@ -52,6 +52,8 @@ export {
     formatCellSync,
     initializePythonFormatter,
     isPythonFormatterReady,
+    getPythonFormatterInitPromise,
+    resetPythonFormatterState,
     type FormatCellResult,
     type CellType,
 } from './cell-formatter.js';
