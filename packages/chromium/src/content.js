@@ -11,13 +11,9 @@ import { formatCell, initializePythonFormatter } from '@jacobknightley/fabric-fo
 // ============================================================================
 
 /**
- * Runtime debug flag - toggle in DevTools console:
- *   window.__fabric_format_debug__ = true   // Enable debug logging
- *   window.__fabric_format_debug__ = false  // Disable debug logging
+ * Debug mode toggle - set to true during development for verbose logging
  */
-if (typeof window !== 'undefined' && window.__fabric_format_debug__ === undefined) {
-  window.__fabric_format_debug__ = false;
-}
+const DEBUG_MODE = true;
 
 const log = {
   /** Always shown - important state changes and results */
@@ -29,9 +25,9 @@ const log = {
   /** Always shown - errors */
   error: (...args) => console.error('[fabric-format]', ...args),
   
-  /** Only shown when debug enabled - detailed tracing */
+  /** Only shown when DEBUG_MODE is true */
   debug: (...args) => {
-    if (window.__fabric_format_debug__) {
+    if (DEBUG_MODE) {
       console.log('[fabric-format:debug]', ...args);
     }
   },
@@ -39,7 +35,124 @@ const log = {
 
 // Expose for testing (will be accessible via window.__fabric_format)
 if (typeof window !== 'undefined') {
-  window.__fabric_format = { formatCell };
+  window.__fabric_format = { formatCell, investigateStorage };
+}
+
+/**
+ * Investigate where Fabric stores notebook cell data
+ */
+async function investigateStorage() {
+  console.log('=== Storage Investigation ===');
+  
+  // Get cell IDs from DOM for comparison
+  const cellIds = Array.from(document.querySelectorAll('[data-cell-id]'))
+    .map(el => el.getAttribute('data-cell-id'));
+  console.log('Cell IDs in DOM:', cellIds);
+  
+  // 1. Check localStorage - look for cell IDs or notebook patterns
+  console.log('\n--- localStorage ---');
+  console.log('Total keys:', Object.keys(localStorage).length);
+  
+  const notebookPatterns = ['notebook', 'cell', 'source', 'content', 'model', 'editor'];
+  const matchingKeys = [];
+  
+  for (const key of Object.keys(localStorage)) {
+    const keyLower = key.toLowerCase();
+    const value = localStorage.getItem(key);
+    
+    // Check if key matches any cell ID
+    if (cellIds.some(id => key.includes(id))) {
+      console.log(`CELL ID MATCH: ${key}`, value?.substring(0, 300));
+      matchingKeys.push(key);
+      continue;
+    }
+    
+    // Check if key contains notebook patterns
+    if (notebookPatterns.some(p => keyLower.includes(p))) {
+      console.log(`PATTERN MATCH (${key}):`, value?.substring(0, 300));
+      matchingKeys.push(key);
+      continue;
+    }
+    
+    // Check if value contains actual code
+    if (value?.includes('SELECT') || value?.includes('spark.') || value?.includes('def ') || value?.includes('import ')) {
+      // Skip if it looks like chat history
+      if (!value.includes('"role"')) {
+        console.log(`CODE MATCH: ${key}`, value?.substring(0, 300));
+        matchingKeys.push(key);
+      }
+    }
+  }
+  
+  // 2. Check IndexedDB more thoroughly
+  console.log('\n--- IndexedDB Deep Dive ---');
+  if (indexedDB.databases) {
+    const dbs = await indexedDB.databases();
+    console.log('Databases:', dbs.map(d => d.name));
+    
+    for (const dbInfo of dbs) {
+      if (dbInfo.name === 'workbox-expiration') continue; // Skip service worker cache
+      
+      console.log(`\nExploring: ${dbInfo.name}`);
+      try {
+        const db = await new Promise((resolve, reject) => {
+          const req = indexedDB.open(dbInfo.name);
+          req.onsuccess = () => resolve(req.result);
+          req.onerror = () => reject(req.error);
+        });
+        
+        for (const storeName of db.objectStoreNames) {
+          const tx = db.transaction(storeName, 'readonly');
+          const store = tx.objectStore(storeName);
+          
+          const allRecords = await new Promise(r => {
+            const req = store.getAll();
+            req.onsuccess = () => r(req.result);
+          });
+          
+          console.log(`  ${storeName}: ${allRecords.length} records`);
+          
+          for (const record of allRecords) {
+            const str = JSON.stringify(record);
+            if (cellIds.some(id => str.includes(id))) {
+              console.log(`  CELL ID in ${storeName}:`, str.substring(0, 500));
+            }
+          }
+        }
+        db.close();
+      } catch (e) {
+        console.log(`  Error: ${e.message}`);
+      }
+    }
+  }
+  
+  // 3. Look for Monaco model registry
+  console.log('\n--- Monaco Models ---');
+  try {
+    // Monaco stores models globally
+    if (window.monaco?.editor) {
+      const models = window.monaco.editor.getModels();
+      console.log('Monaco models:', models.length);
+      for (const model of models) {
+        console.log(`  URI: ${model.uri.toString()}`);
+        console.log(`  Content preview: ${model.getValue().substring(0, 200)}`);
+      }
+    } else {
+      console.log('window.monaco not accessible (isolated world)');
+    }
+  } catch (e) {
+    console.log('Monaco access error:', e.message);
+  }
+  
+  // 4. Check for React state or other frameworks
+  console.log('\n--- Framework Detection ---');
+  const rootEl = document.getElementById('root') || document.querySelector('[data-reactroot]');
+  if (rootEl) {
+    const reactKey = Object.keys(rootEl).find(k => k.startsWith('__reactFiber') || k.startsWith('__reactInternalInstance'));
+    console.log('React detected:', !!reactKey);
+  }
+  
+  console.log('\n=== Investigation Complete ===');
 }
 
 // State
@@ -302,75 +415,6 @@ function findScrollContainer() {
   return document.scrollingElement || document.documentElement;
 }
 
-/**
- * Scroll through the notebook to force lazy-loaded cells to render
- */
-async function scrollToLoadAllCells(updateProgress) {
-  const totalCells = getTotalCellCount();
-  const currentEditors = document.querySelectorAll('.monaco-editor').length;
-  
-  if (totalCells && currentEditors >= totalCells) {
-    log.debug('All cells already loaded, skipping scroll');
-    return;
-  }
-
-  const scrollContainer = findScrollContainer();
-  const originalScrollTop = scrollContainer.scrollTop;
-  const scrollHeight = scrollContainer.scrollHeight;
-  const clientHeight = scrollContainer.clientHeight;
-
-  if (scrollHeight <= clientHeight) {
-    return;
-  }
-
-  scrollContainer.scrollTop = 0;
-  await new Promise(r => setTimeout(r, 100));
-
-  const scrollStep = clientHeight * 0.8;
-  let currentScroll = 0;
-  let lastEditorCount = 0;
-  let stableCount = 0;
-
-  while (currentScroll < scrollHeight + clientHeight) {
-    currentScroll += scrollStep;
-    scrollContainer.scrollTop = Math.min(currentScroll, scrollHeight);
-    
-    await new Promise(r => setTimeout(r, 100));
-    
-    const currentEditorCount = document.querySelectorAll('.monaco-editor').length;
-    
-    if (updateProgress) {
-      const percent = Math.min(100, Math.round((currentScroll / scrollHeight) * 100));
-      updateProgress(`Loading cells... ${percent}% (${currentEditorCount} cells)`);
-    }
-    
-    if (currentEditorCount === lastEditorCount) {
-      stableCount++;
-      if (stableCount < 3) {
-        await new Promise(r => setTimeout(r, 50));
-      }
-    } else {
-      stableCount = 0;
-      lastEditorCount = currentEditorCount;
-    }
-  }
-
-  scrollContainer.scrollTop = scrollHeight;
-  await new Promise(r => setTimeout(r, 150));
-  
-  const finalEditorCount = document.querySelectorAll('.monaco-editor').length;
-  
-  if (totalCells && finalEditorCount < totalCells) {
-    for (let pos = scrollHeight; pos >= 0; pos -= clientHeight * 0.5) {
-      scrollContainer.scrollTop = pos;
-      await new Promise(r => setTimeout(r, 100));
-    }
-  }
-
-  scrollContainer.scrollTop = originalScrollTop;
-  await new Promise(r => setTimeout(r, 100));
-}
-
 // ============================================================================
 // Code Extraction & Insertion
 // ============================================================================
@@ -410,6 +454,16 @@ function extractCodeFromEditor(editorElement) {
 async function setCodeViaPaste(editorElement, codeToInsert) {
   log.debug('setCodeViaPaste: inserting', codeToInsert.length, 'chars');
   try {
+    // Scroll the editor into view first to ensure it's not virtualized
+    editorElement.scrollIntoView({ block: 'center', behavior: 'instant' });
+    await new Promise(r => setTimeout(r, 100));
+    
+    // Verify the editor is still valid after scrolling
+    if (!editorElement.isConnected) {
+      log.error('Editor element disconnected after scroll');
+      return false;
+    }
+    
     const textarea = editorElement.querySelector('textarea.inputarea');
     if (!textarea) {
       log.error('No textarea found in editor');
@@ -603,45 +657,88 @@ async function formatCurrentCell() {
  * Format all cells in the notebook
  */
 async function formatAllCells() {
-  showOverlay('Scanning notebook...');
+  showOverlay('Initializing...');
   
   // Initialize formatters
   await initializeFormatters();
   
-  // Scroll through notebook to force lazy-loaded cells to render
-  await scrollToLoadAllCells(updateOverlay);
+  // Get all cell containers
+  const cellContainers = document.querySelectorAll('.nteract-cell-container[data-cell-id]');
+  const totalCells = cellContainers.length;
   
-  // Now all cells are in the DOM - find them
-  const cells = findCurrentlyVisibleCells();
-  
-  if (cells.length === 0) {
+  if (totalCells === 0) {
     hideOverlay();
-    showNotification('No formattable cells found', 'warning');
+    showNotification('No cells found', 'warning');
     return;
   }
   
-  updateOverlay(`Formatting ${cells.length} cell(s)...`);
+  // Capture scroll position using the same function we use elsewhere
+  const scrollContainer = findScrollContainer();
+  const originalScroll = scrollContainer?.scrollTop || 0;
+  log.debug('formatAllCells: captured scroll position', originalScroll);
   
-  // Phase 1: Determine which cells need formatting
-  const cellsToFormat = [];
+  let formatted = 0;
   let alreadyFormatted = 0;
   let failed = 0;
-  const totalCells = cells.length;
+  let skipped = 0;
   
-  for (let i = 0; i < cells.length; i++) {
-    const { editor, language } = cells[i];
-    updateOverlay(`Checking cell ${i + 1}/${totalCells}...`);
+  // Single pass: scroll to each cell, extract, format, apply
+  for (let i = 0; i < cellContainers.length; i++) {
+    const cellContainer = cellContainers[i];
+    updateOverlay(`Processing cell ${i + 1}/${totalCells}...`);
     
+    // Always scroll to ensure full content is rendered (Monaco virtualizes tall cells)
+    cellContainer.scrollIntoView({ block: 'center', behavior: 'instant' });
+    
+    // Wait for editor content to appear (lines render in one shot, not progressively)
+    let editor = null;
+    let lastLineCount = -1;
+    let stableChecks = 0;
+    const startTime = performance.now();
+    
+    for (let attempt = 0; attempt < 60; attempt++) { // Up to 1.8s total
+      await new Promise(r => setTimeout(r, 30)); // Faster polling
+      editor = cellContainer.querySelector('.monaco-editor');
+      if (editor) {
+        const viewLines = editor.querySelectorAll('.view-lines .view-line');
+        const currentCount = viewLines.length;
+        
+        if (currentCount > 0 && currentCount === lastLineCount) {
+          stableChecks++;
+          if (stableChecks >= 2) { // Only need 2 checks since lines don't change progressively
+            log.debug(`Cell ${i + 1}: stable at ${currentCount} lines after ${Math.round(performance.now() - startTime)}ms`);
+            break;
+          }
+        } else {
+          stableChecks = 0;
+          lastLineCount = currentCount;
+        }
+      }
+    }
+    
+    if (!editor) {
+      skipped++;
+      continue;
+    }
+    
+    // Use proper language detection
+    const cellType = detectCellType(editor);
+    const language = mapCellTypeToLanguage(cellType);
+    
+    if (!language) {
+      skipped++;
+      continue;
+    }
+    
+    // Extract code
     const originalCode = extractCodeFromEditor(editor);
-    if (!originalCode.trim()) continue;
+    if (!originalCode.trim()) {
+      skipped++;
+      continue;
+    }
     
-    log.debug('formatAllCells - cell', i, 'language:', language);
-    log.debug('formatAllCells - originalCode:', JSON.stringify(originalCode));
-    
+    // Format
     const result = formatCell(originalCode, language);
-    
-    log.debug('formatAllCells - result:', { changed: result.changed, error: result.error });
-    log.debug('formatAllCells - formatted:', JSON.stringify(result.formatted));
     
     if (result.error) {
       log.warn('Format error on cell', i, ':', result.error);
@@ -654,27 +751,27 @@ async function formatAllCells() {
       continue;
     }
     
-    cellsToFormat.push({ editor, formattedCode: result.formatted });
-  }
-  
-  // Phase 2: Apply changes
-  let formatted = 0;
-  
-  for (let i = 0; i < cellsToFormat.length; i++) {
-    const { editor, formattedCode } = cellsToFormat[i];
-    updateOverlay(`Applying formatting ${i + 1}/${cellsToFormat.length}...`);
-    
-    const success = await setCodeViaPaste(editor, formattedCode);
+    // Apply the formatted code
+    const success = await setCodeViaPaste(editor, result.formatted);
     if (success) {
       formatted++;
     } else {
       failed++;
     }
     
-    await new Promise(r => setTimeout(r, 100));
+    await new Promise(r => setTimeout(r, 50));
+  }
+  
+  // Restore scroll position
+  if (scrollContainer) {
+    scrollContainer.scrollTop = originalScroll;
+    log.debug('formatAllCells: restored scroll position to', originalScroll);
   }
   
   hideOverlay();
+  
+  // Small delay to let scroll settle before showing notification
+  await new Promise(r => setTimeout(r, 100));
   
   // Show summary
   const parts = [];
@@ -703,6 +800,13 @@ function isIframeActive() {
 
   const style = window.getComputedStyle(body);
   if (style.display === 'none' || style.visibility === 'hidden') {
+    return false;
+  }
+
+  // Check if this iframe is actually visible (not a background notebook tab)
+  // Look for the status bar which only appears in the active notebook view
+  const statusBar = findStatusBar();
+  if (!statusBar) {
     return false;
   }
 
@@ -803,24 +907,23 @@ function createFloatingButton() {
 
 /**
  * Wait for status bar to appear with exponential backoff
- * This handles the case where the status bar loads after the page
+ * Short timeout for iframes - if no status bar quickly, this isn't the active notebook
  */
-async function waitForStatusBarAndInject(maxWaitMs = 30000) {
+async function waitForStatusBarAndInject(maxWaitMs = 5000) {
   const startTime = Date.now();
-  let delay = 100; // Start with 100ms
-  const maxDelay = 2000; // Cap at 2 seconds between retries
+  let delay = 100;
+  const maxDelay = 500;
   
   while (Date.now() - startTime < maxWaitMs) {
     if (createFloatingButton()) {
       return true;
     }
     
-    // Exponential backoff with cap
     await new Promise(r => setTimeout(r, delay));
     delay = Math.min(delay * 1.5, maxDelay);
   }
   
-  log.warn('Status bar not found after', maxWaitMs / 1000, 'seconds');
+  log.debug('No status bar found - this iframe is not the active notebook');
   return false;
 }
 
@@ -828,54 +931,95 @@ async function waitForStatusBarAndInject(maxWaitMs = 30000) {
 // Initialization
 // ============================================================================
 
-async function init() {
+/**
+ * Gather all distinguishing details about this frame for debugging
+ */
+function getFrameDetails() {
+  const url = new URL(window.location.href);
+  return {
+    // URL info
+    hostname: url.hostname,
+    pathname: url.pathname,
+    search: url.search,
+    hash: url.hash,
+    // URL params
+    urlParams: Object.fromEntries(url.searchParams.entries()),
+    // Frame info
+    isTop: window === window.top,
+    frameDepth: (() => {
+      let depth = 0;
+      let win = window;
+      while (win !== win.top) { depth++; win = win.parent; }
+      return depth;
+    })(),
+    frameName: window.name || '(none)',
+    // Document info
+    readyState: document.readyState,
+    title: document.title || '(none)',
+    bodyClasses: document.body?.className || '(none)',
+    // Key elements
+    hasMonacoEditors: document.querySelectorAll('.monaco-editor').length,
+    hasStatusBar: !!document.querySelector('[class*="status-bar"], [class*="statusbar"], [class*="StatusBar"]'),
+    hasNotebookContainer: !!document.querySelector('[class*="notebook"], [class*="Notebook"]'),
+    // Dimensions
+    innerWidth: window.innerWidth,
+    innerHeight: window.innerHeight,
+    // Visibility
+    documentHidden: document.hidden,
+    visibilityState: document.visibilityState,
+  };
+}
+
+function init() {
   const hostname = window.location.hostname;
-  const fullUrl = window.location.href;
   const isTop = window === window.top;
+  const urlParams = new URLSearchParams(window.location.search);
+  const iframeType = urlParams.get('__iframeType');
 
-  log.debug('Init check:', { 
-    hostname, 
-    isTop, 
-    hasPbides: hostname.includes('pbides'),
-    hasBootstrap: fullUrl.includes('bootstrapPath=notebooks'),
-    url: fullUrl.slice(0, 100)
-  });
-
-  if (!isTop) {
-    if (!hostname.includes('pbides')) {
-      log.debug('Skipping non-pbides iframe:', hostname);
-      return;
-    }
-    if (fullUrl.includes('bootstrapPath=notebooks')) {
-      log.debug('Skipping container iframe');
-      return;
-    }
+  // Only run in the "page" iframe - that's where the notebook UI lives
+  // Skip: top frame, worker iframes, non-pbides iframes
+  if (isTop) {
+    log.debug('Skipping top frame');
+    return;
+  }
+  
+  if (!hostname.includes('pbides')) {
+    log.debug('Skipping non-pbides iframe:', hostname);
+    return;
+  }
+  
+  if (iframeType === 'worker') {
+    log.debug('Skipping worker iframe');
+    return;
   }
 
-  log.info('Initializing...');
-  
+  log.debug('Init starting:', getFrameDetails());
+
   setupEditorFocusTracking();
   
-  let checkAttempts = 0;
-  const maxAttempts = 10;
-  
-  const checkForEditors = () => {
-    checkAttempts++;
-    const editorCount = document.querySelectorAll('.monaco-editor').length;
-    
-    if (editorCount > 0) {
-      log.debug('Found', editorCount, 'editors, waiting for status bar...');
-      // Use dedicated function to wait for status bar with retries
-      waitForStatusBarAndInject().then(() => {
-        log.info('Ready - found', editorCount, 'editor(s)');
-      });
-    } else if (checkAttempts < maxAttempts) {
-      setTimeout(checkForEditors, 1000);
-    } else {
-      log.debug('No editors found after', maxAttempts, 'seconds, stopping checks');
+  // Quick check: does this iframe have editors? Check a few times with short delays.
+  // If no editors after ~3 seconds, this isn't the notebook iframe - give up.
+  const checkForEditors = async () => {
+    for (let attempt = 1; attempt <= 5; attempt++) {
+      const editorCount = document.querySelectorAll('.monaco-editor').length;
+      if (editorCount > 0) {
+        log.debug('✓ WINNER - Found', editorCount, 'editors on attempt', attempt);
+        log.debug('✓ WINNER frame details:', getFrameDetails());
+        
+        // Run storage investigation
+        await investigateStorage();
+        
+        const success = await waitForStatusBarAndInject();
+        log.info('Ready - button injected:', success);
+        return;
+      }
+      // Wait 500ms between checks (total ~2.5 seconds)
+      await new Promise(r => setTimeout(r, 500));
     }
+    log.debug('✗ LOSER - No editors found, giving up. Frame details:', getFrameDetails());
   };
   
+  // Start checking once document is ready
   if (document.readyState === 'complete') {
     checkForEditors();
   } else {
