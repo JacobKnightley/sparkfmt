@@ -42,6 +42,14 @@ fabfmt check --type sparksql -i "select * from t"       # Check inline string
 echo "select * from t" | fabfmt check --type sparksql   # Check from stdin
 ```
 
+### Exit Codes
+
+| Code | Meaning                                          |
+| ---- | ------------------------------------------------ |
+| 0    | Success (format: no changes needed, check: pass) |
+| 1    | Failure (format: error occurred, check: changes needed) |
+| 2    | Usage error (invalid arguments, missing files)   |
+
 ## Browser Extension
 
 Format Fabric notebooks directly in your browser with a single click.
@@ -55,6 +63,17 @@ Format Fabric notebooks directly in your browser with a single click.
    - **Edge:** [Sideload an extension](https://learn.microsoft.com/en-us/microsoft-edge/extensions-chromium/getting-started/extension-sideloading)
 
 > **Note:** Plan to eventually publish to the Chrome Web Store and Edge Add-ons.
+
+### Browser Compatibility
+
+| Browser | Version | Status |
+| ------- | ------- | ------ |
+| Chrome  | 88+     | ✅ Supported |
+| Edge    | 88+     | ✅ Supported |
+| Firefox | —       | ❌ Not supported (Manifest V3 only) |
+| Safari  | —       | ❌ Not supported |
+
+Requires a Chromium-based browser with Manifest V3 and WASM support.
 
 ### Usage
 

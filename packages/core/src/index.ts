@@ -1,13 +1,17 @@
 /**
- * sparkfmt - Spark SQL & Python Formatter
- * 
- * A unified formatter for Spark SQL and Python code, designed for
- * Microsoft Fabric notebooks and CI/CD pipelines.
- * 
+ * @jacobknightley/fabric-format - Spark SQL & Python Formatter
+ *
+ * A zero-config formatter for Microsoft Fabric notebooks supporting
+ * Spark SQL and Python. Designed for use in CI/CD pipelines and
+ * browser extensions.
+ *
  * Architecture:
- * - formatters/sql/: Core SQL formatting (ANTLR grammar-driven)
+ * - formatters/sparksql/: Core SQL formatting (ANTLR grammar-driven)
  * - formatters/python/: Python formatting via Ruff WASM
- * - notebook-formatter.ts: Fabric notebook handling
+ * - cell-formatter.ts: Language detection & routing
+ * - notebook-formatter.ts: Fabric notebook file handling
+ *
+ * @packageDocumentation
  */
 
 // ============================================================================
@@ -20,27 +24,27 @@ export { formatSql, needsFormatting } from './formatters/sparksql/index.js';
 // Language Formatters (Extensible)
 // ============================================================================
 
-export { 
-    // Registry
-    getFormatterRegistry,
-    detectLanguage,
-    
-    // SQL
-    SqlFormatter,
-    getSqlFormatter,
-    isSqlCode,
-    
-    // Python
-    PythonFormatter,
-    getPythonFormatter,
-    isPythonCode,
-    
-    // Types
-    type LanguageFormatter,
-    type FormatterOptions,
-    type FormatResult,
-    type FormatterConfig,
-    type FormatterRegistry,
+export {
+  detectLanguage,
+  type FormatResult,
+  type FormatterConfig,
+  type FormatterOptions,
+  type FormatterRegistry,
+  type FormattingContext,
+  formatContextLocation,
+  formatErrorWithContext,
+  // Registry
+  getFormatterRegistry,
+  getPythonFormatter,
+  getSqlFormatter,
+  isPythonCode,
+  isSqlCode,
+  // Types
+  type LanguageFormatter,
+  // Python
+  PythonFormatter,
+  // SQL
+  SqlFormatter,
 } from './formatters/index.js';
 
 // ============================================================================
@@ -48,12 +52,15 @@ export {
 // ============================================================================
 
 export {
-    formatCell,
-    formatCellSync,
-    initializePythonFormatter,
-    isPythonFormatterReady,
-    type FormatCellResult,
-    type CellType,
+  type CellType,
+  type FormatCellResult,
+  formatCell,
+  formatCellAsync,
+  formatCellSync,
+  getPythonFormatterInitPromise,
+  initializePythonFormatter,
+  isPythonFormatterReady,
+  resetPythonFormatterState,
 } from './cell-formatter.js';
 
 // ============================================================================
@@ -61,12 +68,12 @@ export {
 // ============================================================================
 
 export {
-    parseNotebook,
-    formatNotebook,
-    NotebookStructureError,
-    type NotebookCell,
-    type FabricNotebook,
-    type FormatStats,
+  type FabricNotebook,
+  type FormatStats,
+  formatNotebook,
+  type NotebookCell,
+  NotebookStructureError,
+  parseNotebook,
 } from './notebook-formatter.js';
 
 // ============================================================================
@@ -74,35 +81,26 @@ export {
 // ============================================================================
 
 export {
-    DEFAULT_RUFF_CONFIG,
-    RUFF_WASM_CONFIG,
-    type RuffConfig,
-    type RuffFormatConfig,
-    type WasmInitOptions,
+  DEFAULT_RUFF_CONFIG,
+  RUFF_WASM_CONFIG,
+  type RuffConfig,
+  type RuffFormatConfig,
+  type WasmInitOptions,
 } from './formatters/python/index.js';
 
 // ============================================================================
 // Format Directives (Spark SQL)
 // ============================================================================
 
-export { 
-    hasFormatOff, 
-    detectCollapseDirectives, 
-    hasCollapseDirective, 
-    type FormatDirectiveInfo 
+export {
+  detectCollapseDirectives,
+  type FormatDirectiveInfo,
+  hasCollapseDirective,
+  hasFormatOff,
 } from './formatters/sparksql/index.js';
 
 // ============================================================================
-// Types (for library consumers)
+// File Utilities
 // ============================================================================
 
-export type { 
-    AnalyzerResult,
-    FormattingState,
-    MultiArgFunctionInfo,
-    WindowDefInfo,
-    TokenContext,
-    PendingComment,
-    ExpandedFunction,
-    ExpandedWindow
-} from './formatters/sparksql/types.js';
+export { isSupportedFile, SUPPORTED_EXTENSIONS } from './file-utils.js';

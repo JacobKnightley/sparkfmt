@@ -1,7 +1,7 @@
+import { copyFileSync, existsSync, mkdirSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import * as esbuild from 'esbuild';
-import { mkdirSync, existsSync, copyFileSync, readFileSync, writeFileSync } from 'fs';
-import { dirname, join } from 'path';
-import { fileURLToPath } from 'url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const isWatch = process.argv.includes('--watch');
@@ -15,25 +15,53 @@ if (!existsSync('dist')) {
 // The WASM file is in the workspace root node_modules (npm workspaces hoists dependencies)
 const wasmPaths = [
   // Workspace hoisted (most common)
-  join(__dirname, '../../node_modules/@astral-sh/ruff-wasm-web/ruff_wasm_bg.wasm'),
+  join(
+    __dirname,
+    '../../node_modules/@astral-sh/ruff-wasm-web/ruff_wasm_bg.wasm',
+  ),
   // Local package node_modules (fallback)
   join(__dirname, 'node_modules/@astral-sh/ruff-wasm-web/ruff_wasm_bg.wasm'),
   // Nested under fabric-format (rare)
-  join(__dirname, '../core/node_modules/@astral-sh/ruff-wasm-web/ruff_wasm_bg.wasm'),
+  join(
+    __dirname,
+    '../core/node_modules/@astral-sh/ruff-wasm-web/ruff_wasm_bg.wasm',
+  ),
 ];
 
 const wasmDistPath = join(__dirname, 'dist/ruff_wasm_bg.wasm');
 let wasmCopied = false;
 for (const wasmSourcePath of wasmPaths) {
   if (existsSync(wasmSourcePath)) {
-    copyFileSync(wasmSourcePath, wasmDistPath);
-    console.log('✓ Copied ruff_wasm_bg.wasm to dist/');
-    wasmCopied = true;
-    break;
+    try {
+      copyFileSync(wasmSourcePath, wasmDistPath);
+      console.log('✓ Copied ruff_wasm_bg.wasm to dist/');
+      wasmCopied = true;
+      break;
+    } catch (err) {
+      console.error(
+        `✗ Failed to copy WASM from ${wasmSourcePath}: ${err.message}`,
+      );
+      // Continue to try next path
+    }
   }
 }
 if (!wasmCopied) {
-  console.warn('⚠ Could not find ruff_wasm_bg.wasm - Python formatting will not work');
+  console.error(
+    '✗ Could not find or copy ruff_wasm_bg.wasm - Python formatting will not work',
+  );
+  console.error('  Run: npm install @astral-sh/ruff-wasm-web');
+  process.exit(1);
+}
+
+// Copy CSS file to dist
+const cssSourcePath = join(__dirname, 'src/content.css');
+const cssDistPath = join(__dirname, 'dist/content.css');
+try {
+  copyFileSync(cssSourcePath, cssDistPath);
+  console.log('✓ Copied content.css to dist/');
+} catch (err) {
+  console.error(`✗ Failed to copy CSS: ${err.message}`);
+  process.exit(1);
 }
 
 // Build configuration for main content script
@@ -44,7 +72,7 @@ const buildOptions = {
   format: 'iife',
   target: ['chrome100', 'firefox100', 'edge100'],
   minify: true,
-  keepNames: true,  // CRITICAL: Preserve constructor.name for ANTLR context class checks
+  keepNames: true, // CRITICAL: Preserve constructor.name for ANTLR context class checks
   sourcemap: isWatch,
   define: {
     'process.env.NODE_ENV': isWatch ? '"development"' : '"production"',
@@ -52,8 +80,8 @@ const buildOptions = {
   // Handle WASM files - exclude from bundle, load at runtime
   external: [],
   loader: {
-    '.wasm': 'file'
-  }
+    '.wasm': 'file',
+  },
 };
 
 async function build() {

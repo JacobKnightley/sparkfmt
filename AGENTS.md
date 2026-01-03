@@ -96,6 +96,18 @@ Only `blocks` dependencies affect the ready work queue.
 - **TypeScript**: Strict mode enabled
 - **Modules**: Keep to ~200-400 lines for maintainability
 
+### Linter Fixes
+
+When Biome or other linters suggest fixes:
+
+- **Safe fixes** (`--write`): Review briefly, usually fine to apply
+- **Unsafe fixes** (`--unsafe`): **Never apply blindly.** Review each one individually:
+  - Understand what the fix does
+  - Verify it doesn't change behavior
+  - Consider if there's a better solution (e.g., removing dead code vs renaming with underscore)
+  
+If a linter wants to rename an unused variable with `_` prefix, that's a code smell—delete the variable instead of silencing the warning.
+
 ### Browser Extension Debugging
 
 When debugging `packages/chromium`, remember that content scripts run in an **isolated context**. You cannot execute scripts directly in DevTools console against the extension's context—the page's JavaScript world and the extension's world are separate.
@@ -127,17 +139,18 @@ packages/core/
 ### Git Workflow
 
 ```bash
-# Make changes
+# Stage and commit your changes first
 git add <files>
+git commit -m "Your message"
+
+# Pull remote changes (rebase to keep history clean)
+git pull --rebase
 
 # Sync beads issues
 bd sync
 
-# Commit
-git commit -m "Your message"
-
-# After pull
-git pull --rebase
+# Push everything
+git push
 ```
 
 ## Spark SQL Formatter
@@ -222,7 +235,7 @@ npm run build:core
 # Build extension only
 npm run build:chromium
 
-# Run all tests (~335 tests)
+# Run all tests (~540 tests)
 npm test
 
 # Run with failure details
@@ -234,6 +247,8 @@ npm run test:verbose
 **MANDATORY** before ending any work session:
 
 ```bash
+git add .
+git commit -m "Your message"
 git pull --rebase
 bd sync
 git push

@@ -1,0 +1,117 @@
+/**
+ * Fabric Formatter - Content Script Styles
+ * Styles for the format button, overlay, and notifications
+ */
+
+/* ============================================================================
+   Format Button
+   ============================================================================ */
+
+#fabric-formatter-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 0 8px;
+  height: 26px;
+  border: none;
+  border-radius: 4px;
+  background-color: transparent;
+  color: #242424;
+  font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-size: 14px;
+  font-weight: 400;
+  cursor: pointer;
+  transition: background-color 0.1s ease;
+  margin-left: auto;
+}
+
+#fabric-formatter-button:hover {
+  background-color: rgba(0, 0, 0, 0.05);
+}
+
+#fabric-formatter-button .fui-Button__icon {
+  display: flex;
+  align-items: center;
+  color: #881798;
+}
+
+/* ============================================================================
+   Overlay
+   ============================================================================ */
+
+#fabric-formatter-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999999;
+  color: white;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  backdrop-filter: blur(2px);
+}
+
+#fabric-formatter-overlay .overlay-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+
+#fabric-formatter-overlay .overlay-icon {
+  color: #a78bfa;
+}
+
+#fabric-formatter-overlay .overlay-message {
+  font-size: 18px;
+  font-weight: 500;
+}
+
+#fabric-formatter-overlay .overlay-submessage {
+  font-size: 13px;
+  opacity: 0.7;
+}
+
+/* ============================================================================
+   Notifications
+   ============================================================================ */
+
+.fabric-formatter-notification {
+  position: fixed;
+  bottom: 50px;
+  right: 20px;
+  z-index: 1000000;
+  padding: 12px 20px;
+  border-radius: 6px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 14px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-width: 1px;
+  border-style: solid;
+}
+
+.fabric-formatter-notification--success {
+  background: #0e4429;
+  border-color: #238636;
+  color: #ffffff;
+}
+
+.fabric-formatter-notification--warning {
+  background: #4a3800;
+  border-color: #9e6a03;
+  color: #ffffff;
+}
+
+.fabric-formatter-notification--error {
+  background: #4a0e0e;
+  border-color: #f85149;
+  color: #ffffff;
+}

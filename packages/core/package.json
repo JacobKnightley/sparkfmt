@@ -1,6 +1,6 @@
 {
   "name": "@jacobknightley/fabric-format",
-  "version": "0.0.5",
+  "version": "0.0.6",
   "type": "module",
   "description": "A fast, opinionated formatter for Microsoft Fabric notebooks with Spark SQL and Python support",
   "main": "dist/index.js",
@@ -8,11 +8,33 @@
     ".": {
       "import": "./dist/index.js",
       "types": "./dist/index.d.ts"
+    },
+    "./sql": {
+      "import": "./dist/formatters/sparksql/index.js",
+      "types": "./dist/formatters/sparksql/index.d.ts"
+    },
+    "./python": {
+      "import": "./dist/formatters/python/index.js",
+      "types": "./dist/formatters/python/index.d.ts"
+    },
+    "./formatters": {
+      "import": "./dist/formatters/index.js",
+      "types": "./dist/formatters/index.d.ts"
     }
   },
   "types": "dist/index.d.ts",
   "bin": {
     "fabfmt": "dist/cli.js"
+  },
+  "c8": {
+    "include": [
+      "dist/**/*.js"
+    ],
+    "exclude": [
+      "dist/tests/**",
+      "dist/formatters/sparksql/generated/**"
+    ],
+    "all": true
   },
   "files": [
     "dist/**/*.js",
@@ -50,10 +72,12 @@
     "build": "npm run build:readme && npm run build:antlr && npm run build:ts",
     "test": "node dist/tests/index.js",
     "test:verbose": "node dist/tests/index.js --verbose",
+    "test:coverage": "c8 --reporter=text --reporter=html node dist/tests/index.js",
     "format": "node dist/cli.js"
   },
   "devDependencies": {
     "@types/node": "^20.10.0",
+    "c8": "^10.1.3",
     "typescript": "^5.3.0"
   },
   "dependencies": {
