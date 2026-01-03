@@ -10,6 +10,43 @@ import {
 } from '@jacobknightley/fabric-format';
 
 // ============================================================================
+// Timing Constants
+// ============================================================================
+
+/**
+ * Delay constants for DOM operations and polling.
+ * These values are tuned for Monaco Editor and Fabric's React-based UI.
+ */
+const TIMING = {
+  /** Short delay for DOM operations to settle (focus, dispatch events) */
+  DOM_SETTLE_MS: 50,
+
+  /** Delay after scrolling to ensure virtualized content is rendered */
+  SCROLL_SETTLE_MS: 100,
+
+  /** Base delay for initialization retry with exponential backoff */
+  INIT_RETRY_BASE_MS: 500,
+
+  /** Delay between editor detection attempts */
+  EDITOR_CHECK_INTERVAL_MS: 500,
+
+  /** Maximum delay for exponential backoff */
+  MAX_BACKOFF_MS: 500,
+
+  /** Initial delay for exponential backoff */
+  INITIAL_BACKOFF_MS: 100,
+
+  /** Button state polling interval */
+  BUTTON_POLL_INTERVAL_MS: 500,
+
+  /** Maximum wait time for status bar to appear */
+  STATUS_BAR_TIMEOUT_MS: 5000,
+
+  /** Fast polling interval for Monaco editor line stability checks */
+  EDITOR_LINE_POLL_MS: 30,
+};
+
+// ============================================================================
 // Debug Logging
 // ============================================================================
 
@@ -160,10 +197,13 @@ let lastActiveEditor = null;
  * Initialize the Python formatter with WASM loaded from extension resources.
  * Implements retry logic with exponential backoff for transient failures.
  * @param {number} maxRetries - Maximum number of retry attempts (default: 3)
- * @param {number} baseDelayMs - Initial delay between retries in ms (default: 500)
+ * @param {number} baseDelayMs - Initial delay between retries in ms
  * @returns {Promise<boolean>} True if initialization succeeded
  */
-async function initializeFormatters(maxRetries = 3, baseDelayMs = 500) {
+async function initializeFormatters(
+  maxRetries = 3,
+  baseDelayMs = TIMING.INIT_RETRY_BASE_MS,
+) {
   if (pythonInitialized) return true;
   if (initializationFailed) {
     // Already failed permanently, don't retry
@@ -617,7 +657,7 @@ async function setCodeViaPaste(editorElement, codeToInsert) {
   try {
     // Scroll the editor into view first to ensure it's not virtualized
     editorElement.scrollIntoView({ block: 'center', behavior: 'instant' });
-    await new Promise((r) => setTimeout(r, 100));
+    await new Promise((r) => setTimeout(r, TIMING.SCROLL_SETTLE_MS));
 
     // Verify the editor is still valid after scrolling
     if (!editorElement.isConnected) {
@@ -632,7 +672,7 @@ async function setCodeViaPaste(editorElement, codeToInsert) {
     }
 
     textarea.focus();
-    await new Promise((r) => setTimeout(r, 50));
+    await new Promise((r) => setTimeout(r, TIMING.DOM_SETTLE_MS));
 
     textarea.dispatchEvent(
       new KeyboardEvent('keydown', {
@@ -645,7 +685,7 @@ async function setCodeViaPaste(editorElement, codeToInsert) {
         cancelable: true,
       }),
     );
-    await new Promise((r) => setTimeout(r, 50));
+    await new Promise((r) => setTimeout(r, TIMING.DOM_SETTLE_MS));
 
     if (
       document.activeElement !== textarea &&
@@ -905,7 +945,7 @@ async function formatAllCells() {
 
     for (let attempt = 0; attempt < 60; attempt++) {
       // Up to 1.8s total
-      await new Promise((r) => setTimeout(r, 30)); // Faster polling
+      await new Promise((r) => setTimeout(r, TIMING.EDITOR_LINE_POLL_MS));
       editor = cellContainer.querySelector('.monaco-editor');
       if (editor) {
         const viewLines = editor.querySelectorAll('.view-lines .view-line');
@@ -975,7 +1015,7 @@ async function formatAllCells() {
       failed++;
     }
 
-    await new Promise((r) => setTimeout(r, 50));
+    await new Promise((r) => setTimeout(r, TIMING.DOM_SETTLE_MS));
   }
 
   // Restore scroll position
@@ -987,7 +1027,7 @@ async function formatAllCells() {
   hideOverlay();
 
   // Small delay to let scroll settle before showing notification
-  await new Promise((r) => setTimeout(r, 100));
+  await new Promise((r) => setTimeout(r, TIMING.SCROLL_SETTLE_MS));
 
   // Show summary with failed cell numbers if any
   const parts = [];
@@ -1135,10 +1175,12 @@ function createFloatingButton() {
  * Wait for status bar to appear with exponential backoff
  * Short timeout for iframes - if no status bar quickly, this isn't the active notebook
  */
-async function waitForStatusBarAndInject(maxWaitMs = 5000) {
+async function waitForStatusBarAndInject(
+  maxWaitMs = TIMING.STATUS_BAR_TIMEOUT_MS,
+) {
   const startTime = Date.now();
-  let delay = 100;
-  const maxDelay = 500;
+  let delay = TIMING.INITIAL_BACKOFF_MS;
+  const maxDelay = TIMING.MAX_BACKOFF_MS;
 
   while (Date.now() - startTime < maxWaitMs) {
     if (createFloatingButton()) {
@@ -1248,8 +1290,8 @@ function init() {
         log.info('Ready - button injected:', success);
         return;
       }
-      // Wait 500ms between checks (total ~2.5 seconds)
-      await new Promise((r) => setTimeout(r, 500));
+      // Wait between checks (total ~2.5 seconds)
+      await new Promise((r) => setTimeout(r, TIMING.EDITOR_CHECK_INTERVAL_MS));
     }
     log.debug(
       '✗ LOSER - No editors found, giving up. Frame details:',
@@ -1298,7 +1340,7 @@ function init() {
       } else if (!active && button) {
         button.remove();
       }
-    }, 500),
+    }, TIMING.BUTTON_POLL_INTERVAL_MS),
   );
 
   // Debounced handler for mutation observer - prevents excessive DOM queries
