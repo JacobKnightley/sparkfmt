@@ -223,7 +223,7 @@ npm run build:core
 # Build extension only
 npm run build:chromium
 
-# Run all tests (~335 tests)
+# Run all tests (~540 tests)
 npm test
 
 # Run with failure details

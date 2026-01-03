@@ -1,7 +1,7 @@
 /**
  * SQL Formatter Wrapper
  *
- * Wraps the existing sparkfmt SQL formatter to implement the LanguageFormatter interface.
+ * Wraps the core SQL formatter to implement the LanguageFormatter interface.
  */
 
 import type {

@@ -1,13 +1,17 @@
 /**
- * sparkfmt - Spark SQL & Python Formatter
+ * @jacobknightley/fabric-format - Spark SQL & Python Formatter
  *
- * A unified formatter for Spark SQL and Python code, designed for
- * Microsoft Fabric notebooks and CI/CD pipelines.
+ * A zero-config formatter for Microsoft Fabric notebooks supporting
+ * Spark SQL and Python. Designed for use in CI/CD pipelines and
+ * browser extensions.
  *
  * Architecture:
- * - formatters/sql/: Core SQL formatting (ANTLR grammar-driven)
+ * - formatters/sparksql/: Core SQL formatting (ANTLR grammar-driven)
  * - formatters/python/: Python formatting via Ruff WASM
- * - notebook-formatter.ts: Fabric notebook handling
+ * - cell-formatter.ts: Language detection & routing
+ * - notebook-formatter.ts: Fabric notebook file handling
+ *
+ * @packageDocumentation
  */
 
 // ============================================================================

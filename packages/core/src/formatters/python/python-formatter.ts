@@ -79,11 +79,40 @@ async function findWasmFileForNode(): Promise<Uint8Array> {
   return readFile(wasmPath);
 }
 
-/** Options for initializing the WASM module */
+/**
+ * Options for initializing the Ruff WASM module.
+ *
+ * Used primarily in browser environments (Chrome extensions) where the WASM
+ * binary must be loaded from a specific URL or provided directly.
+ *
+ * In Node.js environments, the WASM module is loaded automatically from
+ * the @astral-sh/ruff-wasm-web package, so these options are typically not needed.
+ *
+ * @example Browser extension with URL
+ * ```typescript
+ * const formatter = new PythonFormatter({
+ *   wasmUrl: chrome.runtime.getURL('dist/ruff_wasm_bg.wasm')
+ * });
+ * ```
+ *
+ * @example Pre-loaded binary
+ * ```typescript
+ * const wasmBinary = await fetch('/ruff_wasm_bg.wasm').then(r => r.arrayBuffer());
+ * const formatter = new PythonFormatter({ wasmBinary });
+ * ```
+ */
 export interface WasmInitOptions {
-  /** URL to the .wasm file (for browser environments) */
+  /**
+   * URL to the .wasm file.
+   * Use this in browser environments where the WASM file is served from a URL.
+   * In Chrome extensions, use `chrome.runtime.getURL('path/to/ruff_wasm_bg.wasm')`.
+   */
   wasmUrl?: string | URL;
-  /** WASM binary as ArrayBuffer or Uint8Array (for sync initialization) */
+  /**
+   * Pre-loaded WASM binary for synchronous initialization.
+   * Use this when you've already fetched the WASM file and want to avoid
+   * an additional network request during initialization.
+   */
   wasmBinary?: ArrayBuffer | Uint8Array;
 }
 
