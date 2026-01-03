@@ -5,6 +5,30 @@
  * Use this when you already know the cell type (e.g., from a Chrome extension
  * that reads the cell metadata directly).
  *
+ * ## API Design
+ *
+ * The cell formatter provides three functions with different async/sync behavior:
+ *
+ * | Function | Spark SQL | Python/PySpark | Use Case |
+ * |----------|-----------|----------------|----------|
+ * | `formatCell` | Sync | Sync (needs prior init) | Main API after init |
+ * | `formatCellSync` | Sync | N/A (type error) | SQL-only formatting |
+ * | `formatCellAsync` | Sync | Async (waits for init) | Safe during init |
+ *
+ * ### Why Python Cannot Be Synchronous
+ *
+ * Python formatting uses Ruff compiled to WebAssembly. WASM modules must be
+ * loaded asynchronously in both browsers and Node.js. There is no way to
+ * synchronously initialize the Python formatter.
+ *
+ * ### Recommended Usage
+ *
+ * 1. **Application startup**: Call `await initializePythonFormatter()` once
+ * 2. **Runtime**: Use `formatCell()` for all formatting (sync for both languages)
+ *
+ * If you cannot guarantee initialization order, use `formatCellAsync()` which
+ * will wait for any in-progress initialization.
+ *
  * @example
  * ```typescript
  * import { formatCell, formatCellSync, initializePythonFormatter } from '@jacobknightley/fabric-format';
@@ -238,7 +262,14 @@ export function formatCell(
 
 /**
  * Synchronous version of formatCell for Spark SQL only.
- * Use this when you only need SQL formatting and don't want async.
+ *
+ * This function provides a type-safe way to format SQL without async.
+ * The cellType parameter is restricted to 'sparksql' at the type level,
+ * preventing accidental use with Python (which requires async initialization).
+ *
+ * Note: Python/PySpark cannot be formatted synchronously because the Ruff
+ * WASM module requires async initialization. Use `formatCellAsync()` or
+ * call `initializePythonFormatter()` before using `formatCell()`.
  *
  * @param content Raw cell content
  * @param cellType The cell type (must be 'sparksql')

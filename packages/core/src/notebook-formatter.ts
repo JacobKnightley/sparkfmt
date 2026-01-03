@@ -7,7 +7,41 @@
  * For low-level cell formatting (when you already know the cell type),
  * use the cell-formatter module directly.
  *
- * File formats:
+ * ## Error Handling Design
+ *
+ * This module uses two distinct error patterns based on error recoverability:
+ *
+ * | Error Type | Handling | When |
+ * |------------|----------|------|
+ * | Structural errors | Throws exception | File has invalid format (cannot proceed) |
+ * | Formatting errors | Returns in stats.errors | Individual cell failed (other cells still processed) |
+ *
+ * **Why the difference?**
+ *
+ * - `NotebookStructureError` (thrown): Fatal errors that prevent processing.
+ *   Examples: wrong language in raw cell, malformed metadata. The file cannot
+ *   be safely formatted when structure is invalid.
+ *
+ * - `stats.errors` (returned): Non-fatal errors where formatting continues.
+ *   Examples: syntax errors in individual cells. The cell content is preserved
+ *   unchanged, and other cells are still formatted.
+ *
+ * @example
+ * ```typescript
+ * try {
+ *   const { formatted, stats } = formatNotebook(content, '.py');
+ *   if (stats.errors.length > 0) {
+ *     console.warn('Some cells had errors:', stats.errors);
+ *   }
+ * } catch (e) {
+ *   if (e instanceof NotebookStructureError) {
+ *     console.error('Invalid notebook structure:', e.message);
+ *   }
+ * }
+ * ```
+ *
+ * ## File formats
+ *
  * - .py files (Python/PySpark) with `# MAGIC` prefix for Spark SQL cells
  * - .scala files (Scala/Spark) with `// MAGIC` prefix for Spark SQL cells
  * - .r files (R/SparkR) with `# MAGIC` prefix for Spark SQL cells
@@ -127,10 +161,25 @@ export interface FabricNotebook {
 }
 
 /** Statistics from formatting operation */
+/**
+ * Statistics from a notebook formatting operation.
+ *
+ * The `errors` array contains non-fatal formatting errors from individual cells.
+ * These are formatting failures that don't prevent the overall operation from
+ * completing - the cell content is preserved unchanged, and other cells continue
+ * to be formatted.
+ *
+ * Note: Fatal structural errors (invalid notebook format, wrong language in raw
+ * cells) throw `NotebookStructureError` instead of being added to this array.
+ */
 export interface FormatStats {
+  /** Number of Spark SQL cells that were formatted */
   sparkSqlCellsFormatted: number;
+  /** Number of Python cells that were formatted */
   pythonCellsFormatted: number;
+  /** Number of cells skipped (unsupported languages like Scala, R) */
   cellsSkipped: number;
+  /** Non-fatal errors from individual cell formatting (cell content preserved) */
   errors: string[];
 }
 
