@@ -16,7 +16,10 @@
 import SqlBaseLexer from './generated/SqlBaseLexer.js';
 import SqlBaseParser from './generated/SqlBaseParser.js';
 import SqlBaseParserVisitor from './generated/SqlBaseParserVisitor.js';
-
+import {
+  calculateNormalizedSpanLength,
+  calculateSpanLength,
+} from './span-calculator.js';
 import { getTokenType } from './token-utils.js';
 import type {
   AnalyzerResult,
@@ -359,7 +362,7 @@ export class ParseTreeAnalyzer extends SqlBaseParserVisitor {
       }
 
       if (leftParenTokenIndex !== null && rightParenTokenIndex !== null) {
-        const spanLength = this._calculateNormalizedSpanLength(ctx);
+        const spanLength = calculateNormalizedSpanLength(ctx);
         this.multiArgFunctionInfo.set(leftParenTokenIndex, {
           closeParenIndex: rightParenTokenIndex,
           commaIndices: [],
@@ -1007,7 +1010,7 @@ export class ParseTreeAnalyzer extends SqlBaseParserVisitor {
     // This query qualifies as simple
     // Use forExpansion=false to get actual span regardless of input layout
     if (selectToken) {
-      const spanLength = this._calculateSpanLength(ctx, false);
+      const spanLength = calculateSpanLength(ctx, false);
       this.simpleQueries.set(selectToken.tokenIndex, {
         selectTokenIndex: selectToken.tokenIndex,
         spanLength: spanLength,
@@ -1204,116 +1207,6 @@ export class ParseTreeAnalyzer extends SqlBaseParserVisitor {
 
   // ========== PRIVATE HELPER METHODS ==========
 
-  /**
-   * Calculate the expected formatted span length of a context.
-   *
-   * This walks all tokens within the context and sums:
-   * - Each token's text length
-   * - One space between each pair of tokens (standard formatting)
-   *
-   * This gives an accurate estimate of the formatted output length.
-   *
-   * @param ctx The parse tree context
-   * @param forExpansion If true, returns Infinity for multi-line constructs
-   *                     to prevent already-expanded constructs from collapsing.
-   *                     If false, calculates actual span (for simple query detection).
-   */
-  private _calculateSpanLength(ctx: any, forExpansion: boolean = true): number {
-    if (!ctx || !ctx.start || !ctx.stop) return 0;
-
-    // For expansion checking: if the construct spans multiple lines, return Infinity
-    // This ensures idempotency: once expanded, it stays expanded
-    // For simple query detection: we want the actual span regardless of input layout
-    if (forExpansion) {
-      const startLine = ctx.start.line;
-      const stopLine = ctx.stop.line;
-      if (
-        startLine !== undefined &&
-        stopLine !== undefined &&
-        stopLine > startLine
-      ) {
-        return Infinity;
-      }
-    }
-
-    // Collect all tokens within this context by walking the tree
-    const tokens: string[] = [];
-    const collectTokens = (node: any): void => {
-      if (!node) return;
-      if (node.symbol) {
-        // This is a terminal node (token)
-        tokens.push(node.symbol.text || '');
-      } else if (node.children) {
-        for (const child of node.children) {
-          collectTokens(child);
-        }
-      }
-    };
-    collectTokens(ctx);
-
-    if (tokens.length === 0) {
-      // Fallback to character-based
-      const startIdx = ctx.start.start;
-      const stopIdx = ctx.stop.stop;
-      if (startIdx === undefined || stopIdx === undefined) return 0;
-      return stopIdx - startIdx + 1;
-    }
-
-    // Sum token lengths + (n-1) spaces between tokens
-    const tokenLengths = tokens.reduce((sum, t) => sum + t.length, 0);
-    const spaceBetween = Math.max(0, tokens.length - 1);
-
-    return tokenLengths + spaceBetween;
-  }
-
-  /**
-   * Calculate normalized span length independent of input formatting.
-   * This sums up token text lengths + single spaces between tokens,
-   * giving a consistent "single-line" representation length.
-   *
-   * CRITICAL FOR IDEMPOTENCY: Using character positions (_calculateSpanLength)
-   * varies based on how the input is formatted (line breaks, extra spaces).
-   * This causes different expansion decisions on subsequent passes.
-   * By using token text lengths, we get consistent results regardless of input formatting.
-   */
-  private _calculateNormalizedSpanLength(ctx: any): number {
-    if (!ctx || !ctx.start || !ctx.stop) return 0;
-
-    // Walk through all tokens in the context and sum their text lengths
-    let totalLength = 0;
-    let tokenCount = 0;
-
-    const collectTokens = (node: any): void => {
-      if (!node) return;
-
-      // If this is a terminal (token), add its text length
-      if (node.symbol) {
-        const text = node.symbol.text;
-        if (text) {
-          totalLength += text.length;
-          tokenCount++;
-        }
-        return;
-      }
-
-      // Recurse into children
-      if (node.children) {
-        for (const child of node.children) {
-          collectTokens(child);
-        }
-      }
-    };
-
-    collectTokens(ctx);
-
-    // Add single space between each token (normalized spacing)
-    if (tokenCount > 1) {
-      totalLength += tokenCount - 1;
-    }
-
-    return totalLength;
-  }
-
   private _collectMultiArgFunctionInfo(ctx: any, argCount: number): void {
     if (!ctx.children) return;
 
@@ -1351,7 +1244,7 @@ export class ParseTreeAnalyzer extends SqlBaseParserVisitor {
       rightParenTokenIndex !== null &&
       commaTokenIndices.length === argCount - 1
     ) {
-      const spanLength = this._calculateNormalizedSpanLength(ctx);
+      const spanLength = calculateNormalizedSpanLength(ctx);
       this.multiArgFunctionInfo.set(leftParenTokenIndex, {
         closeParenIndex: rightParenTokenIndex,
         commaIndices: commaTokenIndices,
@@ -1404,7 +1297,7 @@ export class ParseTreeAnalyzer extends SqlBaseParserVisitor {
     }
 
     if (leftParenTokenIndex !== null && rightParenTokenIndex !== null) {
-      const spanLength = this._calculateNormalizedSpanLength(ctx);
+      const spanLength = calculateNormalizedSpanLength(ctx);
       this.windowDefInfo.set(leftParenTokenIndex, {
         closeParenIndex: rightParenTokenIndex,
         orderByTokenIndex: orderByTokenIndex,
@@ -1587,7 +1480,7 @@ export class ParseTreeAnalyzer extends SqlBaseParserVisitor {
     walkForTokens(ctx);
 
     if (openParenIndex !== null && closeParenIndex !== null) {
-      const spanLength = this._calculateNormalizedSpanLength(ctx);
+      const spanLength = calculateNormalizedSpanLength(ctx);
       this.pivotInfo.set(openParenIndex, {
         openParenIndex,
         closeParenIndex,
