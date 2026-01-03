@@ -45,5 +45,8 @@ jobs:
       - name: Install dependencies
         run: npm install
 
+      - name: Build
+        run: npm run build
+
       - name: Check TypeScript
         run: npx tsc --noEmit -p packages/core/tsconfig.json
