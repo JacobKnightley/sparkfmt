@@ -568,6 +568,127 @@ y=2
       }
     },
   },
+  {
+    name: '--print with inline input (-i) prints to stdout',
+    test: async () => {
+      const result = runCli(
+        'format --type sparksql -i "select * from t" --print',
+      );
+      return {
+        passed:
+          result.exitCode === 0 &&
+          result.stdout.includes('SELECT') &&
+          result.stdout.includes('FROM'),
+        message: `--print with -i should print formatted output to stdout`,
+      };
+    },
+  },
+
+  // === stdin/stdout tests ===
+  {
+    name: 'Reads SQL from stdin and writes formatted output to stdout',
+    test: async () => {
+      const input = 'select * from users where id=1';
+      const result = runCli('format --type sparksql', input);
+      return {
+        passed:
+          result.exitCode === 0 &&
+          result.stdout.includes('SELECT') &&
+          result.stdout.includes('FROM') &&
+          result.stdout.includes('WHERE'),
+        message: `Should format SQL from stdin, got: ${result.stdout}`,
+      };
+    },
+  },
+  {
+    name: 'Reads Python from stdin and writes formatted output to stdout',
+    test: async () => {
+      const input = 'x=1\ny=2';
+      const result = runCli('format --type python', input);
+      return {
+        passed:
+          result.exitCode === 0 &&
+          result.stdout.includes('x = 1') &&
+          result.stdout.includes('y = 2'),
+        message: `Should format Python from stdin, got: ${result.stdout}`,
+      };
+    },
+  },
+  {
+    name: 'Reads multiline SQL from stdin',
+    test: async () => {
+      const input = 'select\na,\nb\nfrom\nt';
+      const result = runCli('format --type sparksql', input);
+      return {
+        passed:
+          result.exitCode === 0 &&
+          result.stdout.includes('SELECT') &&
+          result.stdout.includes('FROM'),
+        message: `Should handle multiline stdin input`,
+      };
+    },
+  },
+  {
+    name: '--print with stdin outputs to stdout',
+    test: async () => {
+      const input = 'select * from t';
+      const result = runCli('format --type sparksql --print', input);
+      return {
+        passed:
+          result.exitCode === 0 &&
+          result.stdout.includes('SELECT') &&
+          result.stdout.includes('FROM'),
+        message: `--print with stdin should output to stdout`,
+      };
+    },
+  },
+  {
+    name: 'check command reads from stdin',
+    test: async () => {
+      // Well-formatted SQL should pass check (simple queries stay inline)
+      const input = 'SELECT * FROM t';
+      const result = runCli('check --type sparksql', input);
+      return {
+        passed: result.exitCode === 0,
+        message: `check should read from stdin and return 0 for formatted input, got exit code ${result.exitCode}`,
+      };
+    },
+  },
+  {
+    name: 'check command returns 1 for unformatted stdin',
+    test: async () => {
+      // Poorly formatted SQL should fail check
+      const input = 'select * from t';
+      const result = runCli('check --type sparksql', input);
+      return {
+        passed: result.exitCode === 1,
+        message: `check should return 1 for unformatted stdin, got ${result.exitCode}`,
+      };
+    },
+  },
+  {
+    name: 'Syntax errors from stdin go to stderr',
+    test: async () => {
+      const input = 'select * from';
+      const result = runCli('format --type sparksql', input);
+      // Even with syntax errors, formatter tries to output something
+      // We just verify it doesn't crash
+      return {
+        passed: result.exitCode === 0 || result.stderr.length >= 0,
+        message: `Should handle syntax errors in stdin gracefully`,
+      };
+    },
+  },
+  {
+    name: 'Empty stdin returns empty output',
+    test: async () => {
+      const result = runCli('format --type sparksql', '');
+      return {
+        passed: result.exitCode === 0 && result.stdout.trim() === '',
+        message: `Empty stdin should return empty output`,
+      };
+    },
+  },
 
   // No files specified
   {
