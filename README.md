@@ -64,6 +64,17 @@ Format Fabric notebooks directly in your browser with a single click.
 
 > **Note:** Plan to eventually publish to the Chrome Web Store and Edge Add-ons.
 
+### Browser Compatibility
+
+| Browser | Version | Status |
+| ------- | ------- | ------ |
+| Chrome  | 88+     | ✅ Supported |
+| Edge    | 88+     | ✅ Supported |
+| Firefox | —       | ❌ Not supported (Manifest V3 only) |
+| Safari  | —       | ❌ Not supported |
+
+Requires a Chromium-based browser with Manifest V3 and WASM support.
+
 ### Usage
 
 1. Open a notebook in Microsoft Fabric

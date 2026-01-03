@@ -60,6 +60,27 @@ For manual testing in the browser:
 
 **Note:** Content scripts run in an isolated context. You cannot test extension code directly in the browser's DevTools console—the page's JavaScript and the extension's JavaScript are in separate worlds.
 
+### Debugging the Extension
+
+1. **View extension logs:** Open DevTools on any Fabric page → Console tab. Filter by "content.js" to see extension output.
+
+2. **Inspect content script:** In Chrome, go to `chrome://extensions`, find Fabric Format, click "Inspect views" → service worker (or open DevTools on the Fabric page).
+
+3. **Debug breakpoints:** 
+   - Open DevTools → Sources → Content scripts → fabric-format
+   - Set breakpoints in the bundled content.js
+
+4. **Reload after changes:**
+   ```bash
+   npm run build:chromium
+   ```
+   Then click the refresh icon on `chrome://extensions` or reload the Fabric page.
+
+5. **Common issues:**
+   - Extension not loading? Check `chrome://extensions` for errors
+   - Button not appearing? The page may not match `host_permissions` in manifest.json
+   - WASM errors? Ensure `dist/ruff_wasm_bg.wasm` exists after build
+
 ## Architecture
 
 The SQL formatter is **100% grammar-driven** — Apache Spark's ANTLR grammar is the single source of truth. No hardcoded keyword lists.
