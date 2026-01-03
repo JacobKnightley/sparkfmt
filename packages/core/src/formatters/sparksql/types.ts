@@ -48,13 +48,13 @@ export interface PivotInfo {
   /** Closing RIGHT_PAREN token index */
   closeParenIndex: number;
   /** Comma indices in the aggregates list (before FOR) */
-  aggregateCommaIndices: number[];
+  aggregateCommaIndices: Set<number>;
   /** FOR keyword token index */
   forKeywordIndex: number | null;
   /** IN keyword token index */
   inKeywordIndex: number | null;
   /** Comma indices in the IN list */
-  inListCommaIndices: number[];
+  inListCommaIndices: Set<number>;
   /** Total span length for line width calculation */
   spanLength: number;
   /** Whether this is UNPIVOT (vs PIVOT) */
@@ -70,7 +70,7 @@ export interface InListInfo {
   /** Closing RIGHT_PAREN token index */
   closeParenIndex: number;
   /** Comma indices in the IN list */
-  commaIndices: number[];
+  commaIndices: Set<number>;
   /** Whether this is inside a PIVOT clause */
   isInPivot: boolean;
 }

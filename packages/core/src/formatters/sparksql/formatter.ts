@@ -905,7 +905,7 @@ function formatTokens(
       activeInList = {
         wrapIndent,
         closeParenIndex: inListInfo.closeParenIndex,
-        commaIndices: new Set(inListInfo.commaIndices),
+        commaIndices: inListInfo.commaIndices, // Already a Set
       };
     }
 
@@ -1000,10 +1000,10 @@ function formatTokens(
     ) {
       currentExpandedPivot = {
         closeParenIndex: pivotInfoLookup.closeParenIndex,
-        aggregateCommaIndices: new Set(pivotInfoLookup.aggregateCommaIndices),
+        aggregateCommaIndices: pivotInfoLookup.aggregateCommaIndices, // Already a Set
         forKeywordIndex: pivotInfoLookup.forKeywordIndex,
         inKeywordIndex: pivotInfoLookup.inKeywordIndex,
-        inListCommaIndices: new Set(pivotInfoLookup.inListCommaIndices),
+        inListCommaIndices: pivotInfoLookup.inListCommaIndices, // Already a Set
         depth: state.subqueryDepth,
         openingColumn: builder.getColumn() - 1,
       };

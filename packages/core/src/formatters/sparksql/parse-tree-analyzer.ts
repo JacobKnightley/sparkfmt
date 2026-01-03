@@ -1361,7 +1361,7 @@ export class ParseTreeAnalyzer extends SqlBaseParserVisitor {
     // Now find the open paren, close paren, and commas using recursive walk
     let openParenIndex: number | null = null;
     let closeParenIndex: number | null = null;
-    const commaIndices: number[] = [];
+    const commaIndices: Set<number> = new Set();
     let depth = 0;
     let foundOpenParen = false;
 
@@ -1390,7 +1390,7 @@ export class ParseTreeAnalyzer extends SqlBaseParserVisitor {
             return; // Found the closing paren, stop
           }
         } else if (symName === 'COMMA' && depth === 0 && foundOpenParen) {
-          commaIndices.push(tokenIndex);
+          commaIndices.add(tokenIndex);
         }
       }
 
@@ -1430,8 +1430,8 @@ export class ParseTreeAnalyzer extends SqlBaseParserVisitor {
     let forKeywordIndex: number | null = null;
     let inKeywordIndex: number | null = null;
     let inListOpenParen: number | null = null;
-    const aggregateCommaIndices: number[] = [];
-    const inListCommaIndices: number[] = [];
+    const aggregateCommaIndices: Set<number> = new Set();
+    const inListCommaIndices: Set<number> = new Set();
 
     let foundFor = false;
     let foundIn = false;
@@ -1476,10 +1476,10 @@ export class ParseTreeAnalyzer extends SqlBaseParserVisitor {
         } else if (symName === 'COMMA') {
           if (foundIn && inListOpenParen !== null && inListDepth === 0) {
             // Comma in IN list at top level
-            inListCommaIndices.push(tokenIndex);
+            inListCommaIndices.add(tokenIndex);
           } else if (!foundFor) {
             // Comma before FOR - aggregate list
-            aggregateCommaIndices.push(tokenIndex);
+            aggregateCommaIndices.add(tokenIndex);
           }
         }
       }
