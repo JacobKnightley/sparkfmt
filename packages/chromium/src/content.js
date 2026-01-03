@@ -1198,6 +1198,9 @@ function init() {
   const urlParams = new URLSearchParams(window.location.search);
   const iframeType = urlParams.get('__iframeType');
 
+  // Log entry point for debugging
+  log.info('Content script loaded:', { hostname, isTop, iframeType });
+
   // Only run in the "page" iframe - that's where the notebook UI lives
   // Skip: top frame, worker iframes, non-pbides iframes
   if (isTop) {
