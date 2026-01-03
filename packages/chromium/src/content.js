@@ -866,6 +866,43 @@ async function _formatCurrentCell() {
 }
 
 /**
+ * DEBUG: Flag to enable text stability verification.
+ * When true, formats cell, undoes with Ctrl+Z, re-extracts and compares.
+ * This detects if we captured partial text due to Fabric's lazy loading.
+ * SET TO false FOR PRODUCTION - doubles processing time when enabled!
+ */
+const DEBUG_TEXT_STABILITY = false;
+
+/**
+ * Send Ctrl+Z (undo) to the editor
+ */
+async function sendUndo(editorElement) {
+  const textarea = editorElement.querySelector('textarea.inputarea');
+  if (!textarea) {
+    log.warn('sendUndo: no textarea found');
+    return false;
+  }
+
+  textarea.focus();
+  await new Promise((r) => setTimeout(r, TIMING.DOM_SETTLE_MS));
+
+  textarea.dispatchEvent(
+    new KeyboardEvent('keydown', {
+      key: 'z',
+      code: 'KeyZ',
+      keyCode: 90,
+      which: 90,
+      ctrlKey: true,
+      bubbles: true,
+      cancelable: true,
+    }),
+  );
+
+  await new Promise((r) => setTimeout(r, TIMING.DOM_SETTLE_MS));
+  return true;
+}
+
+/**
  * Format all cells in the notebook
  */
 async function formatAllCells() {
@@ -910,32 +947,47 @@ async function formatAllCells() {
     // Always scroll to ensure full content is rendered (Monaco virtualizes tall cells)
     cellContainer.scrollIntoView({ block: 'center', behavior: 'instant' });
 
-    // Wait for editor content to appear (lines render in one shot, not progressively)
-    let editor = null;
-    let lastLineCount = -1;
+    // Wait a moment for scroll to settle
+    await new Promise((r) => setTimeout(r, TIMING.SCROLL_SETTLE_MS));
+
+    // Find and FOCUS the editor to trigger Monaco to load full content
+    // Monaco lazy-loads text content only when the editor has focus
+    let editor = cellContainer.querySelector('.monaco-editor');
+    if (editor) {
+      const textarea = editor.querySelector('textarea.inputarea');
+      if (textarea) {
+        textarea.focus();
+        await new Promise((r) => setTimeout(r, TIMING.DOM_SETTLE_MS));
+      }
+    }
+
+    // Wait for editor content to stabilize
+    // Monaco creates .view-line divs first, then populates spans with text LAZILY
+    // We must do FULL text extraction and compare to detect when content is actually ready
+    let lastExtractedText = '';
     let stableChecks = 0;
     const startTime = performance.now();
 
-    for (let attempt = 0; attempt < 60; attempt++) {
-      // Up to 1.8s total
+    for (let attempt = 0; attempt < 100; attempt++) {
+      // Up to 3s total
       await new Promise((r) => setTimeout(r, TIMING.EDITOR_LINE_POLL_MS));
       editor = cellContainer.querySelector('.monaco-editor');
       if (editor) {
-        const viewLines = editor.querySelectorAll('.view-lines .view-line');
-        const currentCount = viewLines.length;
+        // Do full text extraction - this is what we'll actually use
+        const currentText = extractCodeFromEditor(editor);
 
-        if (currentCount > 0 && currentCount === lastLineCount) {
+        // Text must be non-empty and stable across multiple checks
+        if (currentText.length > 0 && currentText === lastExtractedText) {
           stableChecks++;
-          if (stableChecks >= 2) {
-            // Only need 2 checks since lines don't change progressively
+          if (stableChecks >= 3) {
             log.debug(
-              `Cell ${i + 1}: stable at ${currentCount} lines after ${Math.round(performance.now() - startTime)}ms`,
+              `Cell ${i + 1}: stable at ${currentText.length} chars after ${Math.round(performance.now() - startTime)}ms`,
             );
             break;
           }
         } else {
           stableChecks = 0;
-          lastLineCount = currentCount;
+          lastExtractedText = currentText;
         }
       }
     }
@@ -954,8 +1006,8 @@ async function formatAllCells() {
       continue;
     }
 
-    // Extract code
-    const originalCode = extractCodeFromEditor(editor);
+    // Use the stable extracted text from the loop
+    const originalCode = lastExtractedText;
     if (!originalCode.trim()) {
       _skipped++;
       continue;
@@ -981,13 +1033,78 @@ async function formatAllCells() {
 
     // Apply the formatted code
     const success = await setCodeViaPaste(editor, result.formatted);
-    if (success) {
-      formatted++;
-    } else {
+    if (!success) {
       failedCells.push(i + 1);
       failed++;
+      continue;
     }
 
+    // DEBUG: Text stability verification via undo
+    if (DEBUG_TEXT_STABILITY) {
+      await new Promise((r) => setTimeout(r, 100)); // Let paste settle
+
+      // Undo the paste
+      await sendUndo(editor);
+      await new Promise((r) => setTimeout(r, 150)); // Let undo settle
+
+      // Re-extract the text after undo
+      const afterUndo = extractCodeFromEditor(editor);
+
+      if (originalCode !== afterUndo) {
+        const cellId = cellContainer.getAttribute('data-cell-id');
+        log.info(`🔍 PARTIAL TEXT DETECTED - Cell ${i + 1} (id: ${cellId})`);
+        log.info(`🔍 Original extraction (${originalCode.length} chars):`);
+        log.info(`🔍 ---BEGIN ORIGINAL---`);
+        log.info(originalCode);
+        log.info(`🔍 ---END ORIGINAL---`);
+        log.info(`🔍 After undo (${afterUndo.length} chars):`);
+        log.info(`🔍 ---BEGIN AFTER UNDO---`);
+        log.info(afterUndo);
+        log.info(`🔍 ---END AFTER UNDO---`);
+        log.info(`🔍 Char diff: ${afterUndo.length - originalCode.length}`);
+        log.info(`🔍 Line count original: ${originalCode.split('\n').length}`);
+        log.info(`🔍 Line count after undo: ${afterUndo.split('\n').length}`);
+
+        // Find first difference position
+        let diffPos = 0;
+        const minLen = Math.min(originalCode.length, afterUndo.length);
+        while (
+          diffPos < minLen &&
+          originalCode[diffPos] === afterUndo[diffPos]
+        ) {
+          diffPos++;
+        }
+        log.info(`🔍 First difference at char position: ${diffPos}`);
+        log.info(
+          `🔍 Context around diff (original): "${originalCode.substring(Math.max(0, diffPos - 20), diffPos + 40)}"`,
+        );
+        log.info(
+          `🔍 Context around diff (after undo): "${afterUndo.substring(Math.max(0, diffPos - 20), diffPos + 40)}"`,
+        );
+
+        // DOM state at time of extraction
+        const viewLines = editor.querySelectorAll('.view-lines .view-line');
+        log.info(`🔍 DOM view-line count: ${viewLines.length}`);
+        log.info(
+          `🔍 Time since scroll: ${Math.round(performance.now() - startTime)}ms`,
+        );
+        log.info(`🔍 Editor rect:`, editor.getBoundingClientRect());
+        log.info(
+          `🔍 Cell container rect:`,
+          cellContainer.getBoundingClientRect(),
+        );
+
+        // Re-apply the format since we undid it
+        log.info(`🔍 Re-applying format after detection...`);
+        await setCodeViaPaste(editor, result.formatted);
+      } else {
+        // Text matched - redo the format (undo our undo)
+        // Actually we need to re-paste since undo reverted to original
+        await setCodeViaPaste(editor, result.formatted);
+      }
+    }
+
+    formatted++;
     await new Promise((r) => setTimeout(r, TIMING.DOM_SETTLE_MS));
   }
 
