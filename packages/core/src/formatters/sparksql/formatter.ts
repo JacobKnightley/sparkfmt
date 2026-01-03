@@ -58,6 +58,58 @@ import {
 import type { AnalyzerResult, ExpandedPivot, ExpandedWindow } from './types.js';
 
 // ============================================================================
+// MODULE-LEVEL CONSTANTS (avoid allocation in hot paths)
+// ============================================================================
+
+/**
+ * Partition transform functions that should be uppercased when followed by '('.
+ * Used in both token loop and determineOutputText.
+ */
+const PARTITION_TRANSFORM_FUNCTIONS = new Set([
+  'BUCKET',
+  'TRUNCATE',
+  'YEAR',
+  'YEARS',
+  'MONTH',
+  'MONTHS',
+  'DAY',
+  'DAYS',
+  'HOUR',
+  'HOURS',
+]);
+
+/**
+ * Structural keywords that should always be uppercase, even in identifier contexts.
+ * These are syntactic markers, not actual identifier names.
+ */
+const STRUCTURAL_KEYWORDS = new Set([
+  'AS',
+  'ON',
+  'AND',
+  'OR',
+  'IN',
+  'FOR',
+  'USING',
+]);
+
+/**
+ * Extension keywords: Should always be uppercase, even in identifier context.
+ * Keywords not in Spark grammar (Delta Lake extensions, etc.).
+ */
+const EXTENSION_KEYWORDS = new Set([
+  'SYSTEM', // SHOW SYSTEM FUNCTIONS
+  'NOSCAN', // ANALYZE TABLE ... NOSCAN
+  'VACUUM',
+  'RETAIN',
+  'RESTORE',
+  'CLONE',
+  'SHALLOW',
+  'DEEP',
+  'OPTIMIZE',
+  'ZORDER',
+]);
+
+// ============================================================================
 // PARSER INSTANCE POOL
 // ============================================================================
 
@@ -463,20 +515,28 @@ function formatTokens(
     isShortValues = estimatedQueryLength <= MAX_LINE_WIDTH;
   }
 
-  // Helper to find next non-WS token
-  const findNextNonWsTokenIndex = (startIdx: number): number => {
-    for (let j = startIdx; j < tokens.length; j++) {
-      const tok = tokens[j];
-      if (
-        tok.type !== SqlBaseLexer.WS &&
-        tok.type !== antlr4.Token.EOF &&
-        tok.type !== SqlBaseLexer.SIMPLE_COMMENT &&
-        tok.type !== SqlBaseLexer.BRACKETED_COMMENT
-      ) {
-        return j;
-      }
+  // Precompute next non-WS token index for every position (O(n) build, O(1) lookup)
+  // nextNonWsIndex[i] = index of first significant token at or after position i, or -1 if none
+  // This matches the semantics of the original findNextNonWsTokenIndex which starts scanning inclusively
+  const nextNonWsIndex = new Int32Array(tokens.length);
+  let lastNonWs = -1;
+  for (let j = tokens.length - 1; j >= 0; j--) {
+    const tok = tokens[j];
+    if (
+      tok.type !== SqlBaseLexer.WS &&
+      tok.type !== antlr4.Token.EOF &&
+      tok.type !== SqlBaseLexer.SIMPLE_COMMENT &&
+      tok.type !== SqlBaseLexer.BRACKETED_COMMENT
+    ) {
+      lastNonWs = j;
     }
-    return -1;
+    nextNonWsIndex[j] = lastNonWs;
+  }
+
+  // O(1) lookup for next non-WS token index (inclusive of startIdx)
+  const findNextNonWsTokenIndex = (startIdx: number): number => {
+    if (startIdx < 0 || startIdx >= tokens.length) return -1;
+    return nextNonWsIndex[startIdx];
   };
 
   // Helper to collect comments from range
@@ -665,19 +725,13 @@ function formatTokens(
       state.prevTokenType,
     );
 
-    // Get next token type for lookahead (skip WS tokens)
-    let nextTokenType: number | null = null;
-    for (let j = i + 1; j < tokens.length; j++) {
-      const nextToken = tokens[j];
-      if (
-        nextToken.type !== SqlBaseLexer.WS &&
-        nextToken.type !== SqlBaseLexer.SIMPLE_COMMENT &&
-        nextToken.type !== SqlBaseLexer.BRACKETED_COMMENT
-      ) {
-        nextTokenType = nextToken.type;
-        break;
-      }
-    }
+    // Get next token type for lookahead using precomputed index (O(1))
+    // We want the next non-WS token AFTER position i, so look up i+1
+    const nextNonWsIdx = i + 1 < tokens.length ? nextNonWsIndex[i + 1] : -1;
+    const nextTokenType =
+      nextNonWsIdx >= 0 && nextNonWsIdx < tokens.length
+        ? tokens[nextNonWsIdx].type
+        : null;
 
     // Determine output text
     const outputText = determineOutputText(
@@ -1011,20 +1065,8 @@ function formatTokens(
     updateClauseFlags(symbolicName, ctx, state);
 
     // Check if this token is a partition transform function (followed by paren)
-    const partitionTransformFunctions = new Set([
-      'BUCKET',
-      'TRUNCATE',
-      'YEAR',
-      'YEARS',
-      'MONTH',
-      'MONTHS',
-      'DAY',
-      'DAYS',
-      'HOUR',
-      'HOURS',
-    ]);
     const isPartitionTransformFunc =
-      partitionTransformFunctions.has(text.toUpperCase()) &&
+      PARTITION_TRANSFORM_FUNCTIONS.has(text.toUpperCase()) &&
       nextTokenType !== null &&
       getSymbolicName(nextTokenType) === 'LEFT_PAREN';
 
@@ -1275,37 +1317,14 @@ function determineOutputText(
   // Structural keywords that should always be uppercase, even in identifier contexts.
   // These are syntactic markers, not actual identifier names.
   // e.g., "LATERAL VIEW EXPLODE(arr) AS item" - AS is a keyword, not an identifier.
-  const structuralKeywords = new Set([
-    'AS',
-    'ON',
-    'AND',
-    'OR',
-    'IN',
-    'FOR',
-    'USING',
-  ]);
-  if (symbolicName && structuralKeywords.has(symbolicName)) {
+  if (symbolicName && STRUCTURAL_KEYWORDS.has(symbolicName)) {
     return text.toUpperCase();
   }
 
   // Extension keywords: Should always be uppercase, even in identifier context.
   // Keywords not in Spark grammar (Delta Lake extensions).
-  const extensionKeywords = new Set([
-    // Spark SQL extensions not in grammar
-    'SYSTEM', // SHOW SYSTEM FUNCTIONS
-    'NOSCAN', // ANALYZE TABLE ... NOSCAN
-    // Delta Lake keywords (none are in the Apache Spark grammar)
-    'VACUUM',
-    'RETAIN',
-    'RESTORE',
-    'CLONE',
-    'SHALLOW',
-    'DEEP',
-    'OPTIMIZE',
-    'ZORDER',
-  ]);
   const textUpper = text.toUpperCase();
-  if (extensionKeywords.has(textUpper)) {
+  if (EXTENSION_KEYWORDS.has(textUpper)) {
     return textUpper;
   }
 
@@ -1314,19 +1333,7 @@ function determineOutputText(
   // When used as column names (not followed by '('), they should preserve casing.
   // e.g., "PARTITIONED BY (bucket(3, col))" - BUCKET uppercase
   // e.g., "SELECT year FROM t" - year lowercase (it's a column name)
-  const partitionTransformFunctions = new Set([
-    'BUCKET',
-    'TRUNCATE',
-    'YEAR',
-    'YEARS',
-    'MONTH',
-    'MONTHS',
-    'DAY',
-    'DAYS',
-    'HOUR',
-    'HOURS',
-  ]);
-  if (partitionTransformFunctions.has(textUpper)) {
+  if (PARTITION_TRANSFORM_FUNCTIONS.has(textUpper)) {
     // Check if next token is '(' (function call context)
     const isFollowedByParen =
       nextTokenType !== null && getSymbolicName(nextTokenType) === 'LEFT_PAREN';
