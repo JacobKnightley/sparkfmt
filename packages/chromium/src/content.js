@@ -725,31 +725,15 @@ function showOverlay(message) {
   const overlay = document.createElement('div');
   overlay.id = 'fabric-formatter-overlay';
   overlay.innerHTML = `
-    <div style="display: flex; flex-direction: column; align-items: center; gap: 16px;">
-      <div style="color: #a78bfa;">
+    <div class="overlay-content">
+      <div class="overlay-icon">
         <svg width="64" height="64" viewBox="0 0 20 20" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
           <path d="M3 4.5A2.5 2.5 0 0 1 5.5 2h5.88c.2 0 .39.08.53.22l4.87 4.87c.14.14.22.33.22.53v7.88a2.5 2.5 0 0 1-2.5 2.5h-9A2.5 2.5 0 0 1 3 15.5v-11Zm2.5-1.5A1.5 1.5 0 0 0 4 4.5v11A1.5 1.5 0 0 0 5.5 17h9a1.5 1.5 0 0 0 1.5-1.5V8h-3.5A1.5 1.5 0 0 1 11 6.5V3H5.5Zm7 .21V6.5c0 .28.22.5.5.5h3.79L12.5 3.21ZM7 11.5c0-.28.22-.5.5-.5h5a.5.5 0 0 1 0 1h-5a.5.5 0 0 1-.5-.5Zm.5 1.5a.5.5 0 0 0 0 1h3a.5.5 0 0 0 0-1h-3Z"/>
         </svg>
       </div>
-      <div style="font-size: 18px; font-weight: 500;">${message}</div>
-      <div style="font-size: 13px; opacity: 0.7;">Please wait...</div>
+      <div class="overlay-message">${message}</div>
+      <div class="overlay-submessage">Please wait...</div>
     </div>
-  `;
-
-  overlay.style.cssText = `
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: rgba(0, 0, 0, 0.7);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 9999999;
-    color: white;
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    backdrop-filter: blur(2px);
   `;
 
   document.body.appendChild(overlay);
@@ -758,7 +742,7 @@ function showOverlay(message) {
 function updateOverlay(message) {
   const overlay = document.getElementById('fabric-formatter-overlay');
   if (overlay) {
-    const textDiv = overlay.querySelector('div > div:nth-child(2)');
+    const textDiv = overlay.querySelector('.overlay-message');
     if (textDiv) textDiv.textContent = message;
   }
 }
@@ -773,22 +757,11 @@ function showNotification(message, type = 'success') {
     notificationElement.remove();
   }
 
-  const colors = {
-    success: { bg: '#0e4429', border: '#238636', text: '#ffffff' },
-    warning: { bg: '#4a3800', border: '#9e6a03', text: '#ffffff' },
-    error: { bg: '#4a0e0e', border: '#f85149', text: '#ffffff' },
-  };
-  const color = colors[type] || colors.success;
+  const validTypes = ['success', 'warning', 'error'];
+  const notificationType = validTypes.includes(type) ? type : 'success';
 
   notificationElement = document.createElement('div');
-  notificationElement.style.cssText = `
-    position: fixed; bottom: 50px; right: 20px; z-index: 1000000;
-    background: ${color.bg}; border: 1px solid ${color.border};
-    color: ${color.text}; padding: 12px 20px; border-radius: 6px;
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    font-size: 14px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-    display: flex; align-items: center; gap: 8px;
-  `;
+  notificationElement.className = `fabric-formatter-notification fabric-formatter-notification--${notificationType}`;
 
   const icon = type === 'success' ? '✓' : type === 'warning' ? '⚠' : '✕';
   notificationElement.innerHTML = `<span>${icon}</span><span>${message}</span>`;
@@ -1117,40 +1090,14 @@ function createFloatingButton() {
     button.className = 'fui-Button r1alrhcs';
     button.setAttribute('aria-label', 'Format all Python and SQL cells');
     button.title = 'Format all cells (Python & SQL)';
-    button.style.cssText = `
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      gap: 4px;
-      padding: 0 8px;
-      height: 26px;
-      border: none;
-      border-radius: 4px;
-      background-color: transparent;
-      color: #242424;
-      font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
-      font-size: 14px;
-      font-weight: 400;
-      cursor: pointer;
-      transition: background-color 0.1s ease;
-      margin-left: auto;
-    `;
 
     button.innerHTML = `
-      <span class="fui-Button__icon" style="display: flex; align-items: center; color: #881798;">
+      <span class="fui-Button__icon">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
           <path d="M2 3.5A1.5 1.5 0 0 1 3.5 2h5.88c.2 0 .39.08.53.22l3.87 3.87c.14.14.22.33.22.53v6.88A1.5 1.5 0 0 1 12.5 15h-9A1.5 1.5 0 0 1 2 13.5v-10Zm1.5-.5a.5.5 0 0 0-.5.5v10a.5.5 0 0 0 .5.5h9a.5.5 0 0 0 .5-.5V7h-2.5A1.5 1.5 0 0 1 9 5.5V3H3.5ZM10 3.2V5.5a.5.5 0 0 0 .5.5h2.3L10 3.2ZM5 9.5a.5.5 0 0 1 .5-.5h5a.5.5 0 0 1 0 1h-5a.5.5 0 0 1-.5-.5Zm.5 1.5a.5.5 0 0 0 0 1h3a.5.5 0 0 0 0-1h-3Z"/>
         </svg>
       </span>
       <span>Format</span>`;
-
-    button.addEventListener('mouseenter', () => {
-      button.style.backgroundColor = 'rgba(0, 0, 0, 0.05)';
-    });
-
-    button.addEventListener('mouseleave', () => {
-      button.style.backgroundColor = 'transparent';
-    });
 
     button.addEventListener('click', formatAllCells);
 

@@ -103,4 +103,4 @@ export {
 // File Utilities
 // ============================================================================
 
-export { isSupportedFile, SUPPORTED_EXTENSIONS } from './cli.js';
+export { isSupportedFile, SUPPORTED_EXTENSIONS } from './file-utils.js';

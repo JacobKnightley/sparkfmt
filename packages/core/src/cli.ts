@@ -7,6 +7,7 @@ import {
   formatCell,
   initializePythonFormatter,
 } from './cell-formatter.js';
+import { isSupportedFile } from './file-utils.js';
 /**
  * CLI for Fabric Notebook Formatter (Spark SQL & Python)
  *
@@ -16,19 +17,6 @@ import {
  *   fabfmt check <files...>        - Check if files need formatting
  */
 import { formatNotebook } from './notebook-formatter.js';
-
-/** Supported file extensions for formatting */
-export const SUPPORTED_EXTENSIONS = ['.sql', '.py', '.scala', '.r'] as const;
-
-/**
- * Check if a file path has a supported extension for formatting.
- * @param filePath - The file path to check
- * @returns true if the file has a supported extension
- */
-export function isSupportedFile(filePath: string): boolean {
-  const ext = path.extname(filePath).toLowerCase();
-  return (SUPPORTED_EXTENSIONS as readonly string[]).includes(ext);
-}
 
 /**
  * Result from running CLI programmatically (for testing)

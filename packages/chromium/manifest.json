@@ -39,6 +39,7 @@
       "matches": ["https://app.fabric.microsoft.com/*"],
       "include_globs": ["*synapsenotebooks*"],
       "js": ["dist/content.js"],
+      "css": ["dist/content.css"],
       "run_at": "document_idle",
       "all_frames": false
     },
@@ -46,6 +47,7 @@
       "matches": ["https://app.powerbi.com/*", "https://pbides.powerbi.com/*"],
       "include_globs": ["*pbides.powerbi.com*", "*app.powerbi.com*"],
       "js": ["dist/content.js"],
+      "css": ["dist/content.css"],
       "run_at": "document_idle",
       "all_frames": false
     }

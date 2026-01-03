@@ -53,6 +53,17 @@ if (!wasmCopied) {
   process.exit(1);
 }
 
+// Copy CSS file to dist
+const cssSourcePath = join(__dirname, 'src/content.css');
+const cssDistPath = join(__dirname, 'dist/content.css');
+try {
+  copyFileSync(cssSourcePath, cssDistPath);
+  console.log('✓ Copied content.css to dist/');
+} catch (err) {
+  console.error(`✗ Failed to copy CSS: ${err.message}`);
+  process.exit(1);
+}
+
 // Build configuration for main content script
 const buildOptions = {
   entryPoints: ['src/content.js'],
