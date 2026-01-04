@@ -1026,13 +1026,37 @@ async function formatAllCells() {
     }
 
     // Wait for editor content to stabilize (see critical note above)
+    // Optimization (fabric-format-pzt): Early exit + adaptive polling
     let lastExtractedText = '';
     let stableChecks = 0;
     const startTime = performance.now();
 
-    for (let attempt = 0; attempt < 100; attempt++) {
-      // Up to 3s total (100 * 30ms)
+    // Early exit check: if content is already loaded (common for visible cells)
+    const initialText = editor ? extractCodeFromEditor(editor) : '';
+    if (initialText.length > 0) {
+      // Do a quick verification - wait one poll and check again
       await new Promise((r) => setTimeout(r, TIMING.EDITOR_LINE_POLL_MS));
+      const verifyText = editor ? extractCodeFromEditor(editor) : '';
+      if (verifyText === initialText && verifyText.length > 0) {
+        // Already stable - skip the full loop
+        lastExtractedText = verifyText;
+        stableChecks = 3; // Mark as stable
+        log.debug(
+          `Cell ${i + 1}: early exit - already stable at ${verifyText.length} chars`,
+        );
+      } else {
+        // Not stable yet, initialize for the loop
+        lastExtractedText = verifyText;
+        stableChecks =
+          verifyText === initialText && verifyText.length > 0 ? 1 : 0;
+      }
+    }
+
+    // Adaptive polling: start fast (30ms), slow down after first stable reading
+    let pollInterval = TIMING.EDITOR_LINE_POLL_MS; // Start at 30ms
+
+    for (let attempt = 0; attempt < 100 && stableChecks < 3; attempt++) {
+      await new Promise((r) => setTimeout(r, pollInterval));
 
       // Re-query editor in case DOM was recreated during virtualization
       editor = cellContainer.querySelector('.monaco-editor');
@@ -1041,8 +1065,18 @@ async function formatAllCells() {
         const currentText = extractCodeFromEditor(editor);
 
         // Text must be non-empty and stable across 3 consecutive checks
-        if (currentText.length > 0 && currentText === lastExtractedText) {
+        // Optimization (fabric-format-zp6): length check first as fast negative
+        const lengthMatch = currentText.length === lastExtractedText.length;
+        if (
+          currentText.length > 0 &&
+          lengthMatch &&
+          currentText === lastExtractedText
+        ) {
           stableChecks++;
+          // Adaptive: slow down after first stable reading (content is settling)
+          if (stableChecks === 1) {
+            pollInterval = Math.min(pollInterval * 1.5, 100); // Slow down, max 100ms
+          }
           if (stableChecks >= 3) {
             log.debug(
               `Cell ${i + 1}: stable at ${currentText.length} chars after ${Math.round(performance.now() - startTime)}ms`,
@@ -1050,8 +1084,9 @@ async function formatAllCells() {
             break;
           }
         } else {
-          // Text changed - reset stability counter
+          // Text changed - reset stability counter, go back to fast polling
           stableChecks = 0;
+          pollInterval = TIMING.EDITOR_LINE_POLL_MS;
           lastExtractedText = currentText;
         }
       }
