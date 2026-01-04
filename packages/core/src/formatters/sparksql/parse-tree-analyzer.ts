@@ -1405,11 +1405,87 @@ export class ParseTreeAnalyzer extends SqlBaseParserVisitor {
     walkForTokens(ctx);
 
     if (openParenIndex !== null && closeParenIndex !== null) {
+      // Compute item lengths: we need to walk tokens again to calculate lengths
+      // itemLengths maps commaIndex -> length of item AFTER that comma
+      // Special key -1 = length of first item (before first comma or entire list if no commas)
+      const itemLengths = new Map<number, number>();
+
+      // Collect all tokens in the list with their positions and text lengths
+      interface TokenInfo {
+        tokenIndex: number;
+        textLength: number;
+        isComma: boolean;
+      }
+      const listTokens: TokenInfo[] = [];
+      // Cache non-null values for use in closure
+      const openIdx = openParenIndex;
+      const closeIdx = closeParenIndex;
+
+      const collectTokens = (node: any): void => {
+        if (!node) return;
+        if (node.symbol) {
+          const tokenIndex = node.symbol.tokenIndex;
+          // Only include tokens between open and close paren
+          if (tokenIndex > openIdx && tokenIndex < closeIdx) {
+            const symName = SqlBaseLexer.symbolicNames[node.symbol.type];
+            // Skip whitespace
+            if (symName !== 'WS') {
+              listTokens.push({
+                tokenIndex,
+                textLength: (node.symbol.text || '').length,
+                isComma: symName === 'COMMA',
+              });
+            }
+          }
+        }
+        if (node.children) {
+          for (const child of node.children) {
+            collectTokens(child);
+          }
+        }
+      };
+      collectTokens(ctx);
+
+      // Sort by token index
+      listTokens.sort((a, b) => a.tokenIndex - b.tokenIndex);
+
+      // Calculate item lengths by grouping tokens between commas
+      let currentItemLength = 0;
+      let currentItemStart = -1; // -1 means first item
+      let tokenCount = 0;
+
+      for (const tok of listTokens) {
+        if (tok.isComma) {
+          // Store length for the item that just ended
+          // Account for spaces between tokens (tokenCount - 1 spaces)
+          itemLengths.set(
+            currentItemStart,
+            currentItemLength + Math.max(0, tokenCount - 1),
+          );
+          // Start new item after this comma
+          currentItemStart = tok.tokenIndex;
+          currentItemLength = 0;
+          tokenCount = 0;
+        } else {
+          currentItemLength += tok.textLength;
+          tokenCount++;
+        }
+      }
+
+      // Store length of final item
+      if (tokenCount > 0 || currentItemStart !== -1) {
+        itemLengths.set(
+          currentItemStart,
+          currentItemLength + Math.max(0, tokenCount - 1),
+        );
+      }
+
       this.inListInfo.set(openParenIndex, {
         openParenIndex,
         closeParenIndex,
         commaIndices,
         isInPivot: false, // WHERE IN, not PIVOT IN
+        itemLengths,
       });
       // Add commas to the pre-computed set for O(1) lookup
       for (const idx of commaIndices) {
@@ -1511,11 +1587,76 @@ export class ParseTreeAnalyzer extends SqlBaseParserVisitor {
         // Find the IN list close paren (it's one before the PIVOT close paren)
         // We need to find the actual IN list close paren
         const inListCloseParen = closeParenIndex; // Default to same as PIVOT close
+
+        // Compute item lengths for PIVOT IN list
+        const itemLengths = new Map<number, number>();
+        interface TokenInfo {
+          tokenIndex: number;
+          textLength: number;
+          isComma: boolean;
+        }
+        const listTokens: TokenInfo[] = [];
+        // Cache non-null values for use in closure
+        const pivotOpenIdx = inListOpenParen;
+        const pivotCloseIdx = inListCloseParen;
+
+        const collectPivotTokens = (node: any): void => {
+          if (!node) return;
+          if (node.symbol) {
+            const tokenIndex = node.symbol.tokenIndex;
+            // Only include tokens between IN list open and close paren
+            if (tokenIndex > pivotOpenIdx && tokenIndex < pivotCloseIdx) {
+              const symName = SqlBaseLexer.symbolicNames[node.symbol.type];
+              // Skip whitespace
+              if (symName !== 'WS') {
+                listTokens.push({
+                  tokenIndex,
+                  textLength: (node.symbol.text || '').length,
+                  isComma: symName === 'COMMA',
+                });
+              }
+            }
+          }
+          if (node.children) {
+            for (const child of node.children) {
+              collectPivotTokens(child);
+            }
+          }
+        };
+        collectPivotTokens(ctx);
+        listTokens.sort((a, b) => a.tokenIndex - b.tokenIndex);
+
+        let currentItemLength = 0;
+        let currentItemStart = -1;
+        let tokenCount = 0;
+
+        for (const tok of listTokens) {
+          if (tok.isComma) {
+            itemLengths.set(
+              currentItemStart,
+              currentItemLength + Math.max(0, tokenCount - 1),
+            );
+            currentItemStart = tok.tokenIndex;
+            currentItemLength = 0;
+            tokenCount = 0;
+          } else {
+            currentItemLength += tok.textLength;
+            tokenCount++;
+          }
+        }
+        if (tokenCount > 0 || currentItemStart !== -1) {
+          itemLengths.set(
+            currentItemStart,
+            currentItemLength + Math.max(0, tokenCount - 1),
+          );
+        }
+
         this.inListInfo.set(inListOpenParen, {
           openParenIndex: inListOpenParen,
           closeParenIndex: inListCloseParen,
           commaIndices: inListCommaIndices,
           isInPivot: true,
+          itemLengths,
         });
         // Add commas to the pre-computed set for O(1) lookup
         for (const idx of inListCommaIndices) {

@@ -73,6 +73,8 @@ export interface InListInfo {
   commaIndices: Set<number>;
   /** Whether this is inside a PIVOT clause */
   isInPivot: boolean;
+  /** Precomputed item lengths: itemLengths[i] = length of item after comma i (or first item if i=-1) */
+  itemLengths: Map<number, number>;
 }
 
 /**

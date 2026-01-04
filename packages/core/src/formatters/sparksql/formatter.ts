@@ -462,11 +462,12 @@ function formatTokens(
   formatDirectives.forceInlineRanges = forceInlineRanges;
 
   // IN list wrapping state
-  // Maps open paren index -> { wrapIndent, closeParenIndex, commaIndices }
+  // Maps open paren index -> { wrapIndent, closeParenIndex, commaIndices, itemLengths }
   interface ActiveInList {
     wrapIndent: number; // Column to wrap to (after open paren)
     closeParenIndex: number;
     commaIndices: Set<number>;
+    itemLengths: Map<number, number>; // Precomputed: commaIndex -> length of next item
   }
   let activeInList: ActiveInList | null = null;
 
@@ -912,13 +913,8 @@ function formatTokens(
     // Handle IN list wrapping: after outputting a comma in an IN list,
     // check if the next item would exceed line width
     if (activeInList?.commaIndices.has(tokenIndex) && text === ',') {
-      // Look ahead to estimate the length of the next item
-      const nextItemLength = estimateNextInListItemLength(
-        tokens,
-        i,
-        findNextNonWsTokenIndex,
-        activeInList.closeParenIndex,
-      );
+      // Use precomputed item length (O(1) lookup instead of O(k) walk)
+      const nextItemLength = activeInList.itemLengths.get(tokenIndex) ?? 0;
       const currentCol = builder.getColumn();
 
       // Add 1 for the space after comma
@@ -953,6 +949,7 @@ function formatTokens(
         wrapIndent,
         closeParenIndex: inListInfo.closeParenIndex,
         commaIndices: inListInfo.commaIndices, // Already a Set
+        itemLengths: inListInfo.itemLengths, // Precomputed lengths
       };
     }
 
@@ -1253,57 +1250,6 @@ function isForceInlineOpen(
   ranges: ForceInlineRange[],
 ): boolean {
   return ranges.some((r) => r.openTokenIndex === tokenIndex);
-}
-
-/**
- * Estimate the length of the next item in an IN list.
- * Looks ahead from the current comma to find the next comma or close paren.
- */
-function estimateNextInListItemLength(
-  tokenList: any[],
-  currentIndex: number,
-  findNextNonWsTokenIndex: (idx: number) => number,
-  closeParenIndex: number,
-): number {
-  let length = 0;
-  let idx = findNextNonWsTokenIndex(currentIndex + 1);
-  let depth = 0;
-
-  while (idx >= 0 && idx < tokenList.length) {
-    const token = tokenList[idx];
-    const tokenIndex = token.tokenIndex;
-    const text = token.text || '';
-    const symName = SqlBaseLexer.symbolicNames[token.type];
-
-    // Stop at the close paren of the IN list
-    if (tokenIndex === closeParenIndex) {
-      break;
-    }
-
-    // Track nested parens
-    if (symName === 'LEFT_PAREN') {
-      depth++;
-      length += text.length;
-    } else if (symName === 'RIGHT_PAREN') {
-      if (depth > 0) {
-        depth--;
-        length += text.length;
-      } else {
-        break; // Reached closing paren
-      }
-    } else if (symName === 'COMMA' && depth === 0) {
-      // Found the next comma at top level - this is the end of the item
-      break;
-    } else {
-      length += text.length;
-      // Add space between tokens (rough estimate)
-      length += 1;
-    }
-
-    idx = findNextNonWsTokenIndex(idx + 1);
-  }
-
-  return length;
 }
 
 /**
