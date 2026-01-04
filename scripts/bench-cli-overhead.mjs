@@ -63,7 +63,7 @@ for (const file of filesAsync) {
 console.log(`  Read ${filesAsync.length} files (${(totalBytesAsyncSeq / 1024 / 1024).toFixed(1)}MB) in ${(performance.now() - readAsyncSeqStart).toFixed(0)}ms`);
 
 // 5. Now test formatting with detailed timing
-console.log('\n=== Formatting with Detailed Timing ===');
+console.log('\n=== Formatting with Detailed Timing (Run 1 - JIT warmup) ===');
 const { formatNotebook, initializePythonFormatter } = await import('../packages/core/dist/index.js');
 await initializePythonFormatter();
 
@@ -74,16 +74,37 @@ const fmtStart = performance.now();
 for (const file of filesSync) {
   const readStart = performance.now();
   const content = fs.readFileSync(file, 'utf8');
+  const ext = path.extname(file);
   readTime += performance.now() - readStart;
   
-  const fmtInnerStart = performance.now();
-  const ext = path.extname(file).toLowerCase();
+  const formatStart = performance.now();
   await formatNotebook(content, ext, { filePath: file });
-  formatTime += performance.now() - fmtInnerStart;
+  formatTime += performance.now() - formatStart;
 }
 const totalTime = performance.now() - fmtStart;
-
 console.log(`  Total: ${totalTime.toFixed(0)}ms`);
 console.log(`  File reads: ${readTime.toFixed(0)}ms`);
 console.log(`  Formatting: ${formatTime.toFixed(0)}ms`);
 console.log(`  Other: ${(totalTime - readTime - formatTime).toFixed(0)}ms`);
+
+// Run 2 - warmed
+console.log('\n=== Formatting with Detailed Timing (Run 2 - JIT warmed) ===');
+formatTime = 0;
+readTime = 0;
+
+const fmtStart2 = performance.now();
+for (const file of filesSync) {
+  const readStart = performance.now();
+  const content = fs.readFileSync(file, 'utf8');
+  const ext = path.extname(file);
+  readTime += performance.now() - readStart;
+  
+  const formatStart = performance.now();
+  await formatNotebook(content, ext, { filePath: file });
+  formatTime += performance.now() - formatStart;
+}
+const totalTime2 = performance.now() - fmtStart2;
+console.log(`  Total: ${totalTime2.toFixed(0)}ms`);
+console.log(`  File reads: ${readTime.toFixed(0)}ms`);
+console.log(`  Formatting: ${formatTime.toFixed(0)}ms`);
+console.log(`  Other: ${(totalTime2 - readTime - formatTime).toFixed(0)}ms`);
