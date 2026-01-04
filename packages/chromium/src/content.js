@@ -620,28 +620,67 @@ function extractCodeFromEditor(editorElement) {
     return editorElement.innerText?.replace(/\u00a0/g, ' ') || '';
   }
 
-  const sortedLines = Array.from(lines).sort((a, b) => {
-    const topA = parseFloat(a.style.top) || 0;
-    const topB = parseFloat(b.style.top) || 0;
-    return topA - topB;
-  });
+  // Optimization: Pre-compute top values and check if already sorted (fabric-format-su3)
+  // Monaco doesn't guarantee DOM order = visual order, but often lines ARE in order
+  const linesArray = Array.from(lines);
+  const topValues = linesArray.map((line) => parseFloat(line.style.top) || 0);
 
+  // Check if already sorted by comparing adjacent pairs
+  let needsSort = false;
+  for (let i = 1; i < topValues.length; i++) {
+    if (topValues[i] < topValues[i - 1]) {
+      needsSort = true;
+      break;
+    }
+  }
+
+  let sortedLines;
+  if (needsSort) {
+    // Create index array and sort by pre-computed top values
+    const indices = linesArray.map((_, i) => i);
+    indices.sort((a, b) => topValues[a] - topValues[b]);
+    sortedLines = indices.map((i) => linesArray[i]);
+  } else {
+    sortedLines = linesArray;
+  }
+
+  // Optimization: Use children iteration instead of querySelectorAll (fabric-format-0vn)
+  // and defer nbsp replacement to end (fabric-format-ocr)
   for (const line of sortedLines) {
     let lineText = '';
-    const spans = line.querySelectorAll('span > span');
+    let hasSpans = false;
 
-    if (spans.length > 0) {
-      for (const span of spans) {
-        lineText += span.textContent.replace(/\u00a0/g, ' ');
+    // Monaco structure is typically: .view-line > span > span (for syntax highlighting)
+    for (const child of line.children) {
+      if (child.tagName === 'SPAN') {
+        for (const span of child.children) {
+          if (span.tagName === 'SPAN') {
+            lineText += span.textContent;
+            hasSpans = true;
+          }
+        }
+        // Also get direct text content from child span if no nested spans
+        if (!hasSpans && child.textContent) {
+          lineText += child.textContent;
+          hasSpans = true;
+        }
       }
-    } else {
-      lineText = line.textContent.replace(/\u00a0/g, ' ');
+    }
+
+    // Fallback if no spans found
+    if (!hasSpans) {
+      lineText = line.textContent;
     }
 
     codeLines.push(lineText);
   }
 
-  const code = codeLines.join('\n');
+  // Single nbsp replacement at the end (fabric-format-ocr)
+  const rawCode = codeLines.join('\n');
+  const code = rawCode.includes('\u00a0')
+    ? rawCode.replaceAll('\u00a0', ' ')
+    : rawCode;
+
   log.debug(
     'extractCodeFromEditor: extracted',
     codeLines.length,

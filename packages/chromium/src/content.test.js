@@ -131,34 +131,72 @@ function detectCellType(editor) {
 }
 
 /**
- * Extract code from Monaco editor lines
+ * Extract code from Monaco editor lines (optimized version)
  */
 function extractCodeFromEditor(editorElement) {
   const lines = editorElement.querySelectorAll('.view-lines .view-line');
   const codeLines = [];
 
-  const sortedLines = Array.from(lines).sort((a, b) => {
-    const topA = parseFloat(a.style?.top) || 0;
-    const topB = parseFloat(b.style?.top) || 0;
-    return topA - topB;
-  });
+  if (lines.length === 0) {
+    return '';
+  }
 
+  // Optimization: Pre-compute top values and check if already sorted (fabric-format-su3)
+  const linesArray = Array.from(lines);
+  const topValues = linesArray.map((line) => parseFloat(line.style?.top) || 0);
+
+  // Check if already sorted by comparing adjacent pairs
+  let needsSort = false;
+  for (let i = 1; i < topValues.length; i++) {
+    if (topValues[i] < topValues[i - 1]) {
+      needsSort = true;
+      break;
+    }
+  }
+
+  let sortedLines;
+  if (needsSort) {
+    // Create index array and sort by pre-computed top values
+    const indices = linesArray.map((_, i) => i);
+    indices.sort((a, b) => topValues[a] - topValues[b]);
+    sortedLines = indices.map((i) => linesArray[i]);
+  } else {
+    sortedLines = linesArray;
+  }
+
+  // Optimization: Use children iteration instead of querySelectorAll (fabric-format-0vn)
+  // and defer nbsp replacement to end (fabric-format-ocr)
   for (const line of sortedLines) {
     let lineText = '';
-    const spans = line.querySelectorAll('span > span');
+    let hasSpans = false;
 
-    if (spans.length > 0) {
-      for (const span of spans) {
-        lineText += span.textContent.replace(/\u00a0/g, ' ');
+    for (const child of line.children) {
+      if (child.tagName === 'SPAN') {
+        for (const span of child.children) {
+          if (span.tagName === 'SPAN') {
+            lineText += span.textContent;
+            hasSpans = true;
+          }
+        }
+        if (!hasSpans && child.textContent) {
+          lineText += child.textContent;
+          hasSpans = true;
+        }
       }
-    } else {
-      lineText = line.textContent.replace(/\u00a0/g, ' ');
+    }
+
+    if (!hasSpans) {
+      lineText = line.textContent;
     }
 
     codeLines.push(lineText);
   }
 
-  return codeLines.join('\n');
+  // Single nbsp replacement at the end (fabric-format-ocr)
+  const rawCode = codeLines.join('\n');
+  return rawCode.includes('\u00a0')
+    ? rawCode.replaceAll('\u00a0', ' ')
+    : rawCode;
 }
 
 /**
