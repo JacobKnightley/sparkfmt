@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" fill="none">
+  <!-- Alternative 3: Clean document with aligned lines (most Fluent-like) -->
+  
+  <!-- Document outline -->
+  <rect x="24" y="12" width="80" height="104" rx="8" stroke="#117865" stroke-width="6" fill="none"/>
+  
+  <!-- Formatted text lines inside -->
+  <g stroke="#117865" stroke-width="5" stroke-linecap="round">
+    <line x1="40" y1="36" x2="88" y2="36"/>
+    <line x1="40" y1="52" x2="72" y2="52"/>
+    <line x1="48" y1="68" x2="80" y2="68"/>
+    <line x1="48" y1="84" x2="64" y2="84"/>
+    <line x1="40" y1="100" x2="88" y2="100"/>
+  </g>
+</svg>
