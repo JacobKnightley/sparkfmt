@@ -852,26 +852,171 @@ function showNotification(message, type = 'success') {
 // ============================================================================
 
 /**
- * Debug function to log all cells found in the DOM along with their container hierarchy.
+ * Show a popup modal with debug output that can be easily copied.
+ */
+function showDebugPopup(content) {
+  // Remove existing popup if any
+  const existing = document.getElementById('fabric-formatter-debug-popup');
+  if (existing) existing.remove();
+
+  const popup = document.createElement('div');
+  popup.id = 'fabric-formatter-debug-popup';
+  popup.style.cssText = `
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 80%;
+    max-width: 900px;
+    max-height: 80vh;
+    background: #1e1e1e;
+    border: 1px solid #444;
+    border-radius: 8px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+    z-index: 999999;
+    display: flex;
+    flex-direction: column;
+    font-family: 'Consolas', 'Monaco', monospace;
+  `;
+
+  const header = document.createElement('div');
+  header.style.cssText = `
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 16px;
+    background: #2d2d2d;
+    border-bottom: 1px solid #444;
+    border-radius: 8px 8px 0 0;
+  `;
+
+  const title = document.createElement('span');
+  title.textContent = 'Cell Discovery Debug (fabric-format-wphq)';
+  title.style.cssText = 'color: #fff; font-weight: bold; font-size: 14px;';
+
+  const buttonContainer = document.createElement('div');
+  buttonContainer.style.cssText = 'display: flex; gap: 8px;';
+
+  const copyBtn = document.createElement('button');
+  copyBtn.textContent = '📋 Copy';
+  copyBtn.style.cssText = `
+    padding: 6px 12px;
+    background: #0078d4;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+  `;
+  copyBtn.addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(content);
+      copyBtn.textContent = '✓ Copied!';
+      setTimeout(() => {
+        copyBtn.textContent = '📋 Copy';
+      }, 2000);
+    } catch (_e) {
+      copyBtn.textContent = '✕ Failed';
+    }
+  });
+
+  const closeBtn = document.createElement('button');
+  closeBtn.textContent = '✕ Close';
+  closeBtn.style.cssText = `
+    padding: 6px 12px;
+    background: #444;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+  `;
+  closeBtn.addEventListener('click', () => popup.remove());
+
+  buttonContainer.appendChild(copyBtn);
+  buttonContainer.appendChild(closeBtn);
+  header.appendChild(title);
+  header.appendChild(buttonContainer);
+
+  const textArea = document.createElement('textarea');
+  textArea.value = content;
+  textArea.readOnly = true;
+  textArea.style.cssText = `
+    flex: 1;
+    padding: 16px;
+    background: #1e1e1e;
+    color: #d4d4d4;
+    border: none;
+    resize: none;
+    font-family: 'Consolas', 'Monaco', monospace;
+    font-size: 12px;
+    line-height: 1.5;
+    overflow: auto;
+  `;
+
+  popup.appendChild(header);
+  popup.appendChild(textArea);
+
+  // Add backdrop
+  const backdrop = document.createElement('div');
+  backdrop.id = 'fabric-formatter-debug-backdrop';
+  backdrop.style.cssText = `
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0,0,0,0.5);
+    z-index: 999998;
+  `;
+  backdrop.addEventListener('click', () => {
+    popup.remove();
+    backdrop.remove();
+  });
+
+  document.body.appendChild(backdrop);
+  document.body.appendChild(popup);
+
+  // Focus the textarea for immediate keyboard selection
+  textArea.focus();
+  textArea.select();
+}
+
+/**
+ * Debug function to collect all cells found in the DOM along with their container hierarchy.
  * This helps identify how cells are grouped when multiple notebooks are open.
  * Activated via a separate button to avoid triggering formatting.
  */
 function debugLogCellDiscovery() {
-  log.info('='.repeat(80));
-  log.info('CELL DISCOVERY DEBUG - fabric-format-wphq');
-  log.info('='.repeat(80));
+  const lines = [];
+  const addLine = (text = '') => lines.push(text);
+  const addSection = (title) => {
+    addLine('='.repeat(80));
+    addLine(title);
+    addLine('='.repeat(80));
+  };
+  const addSubSection = (title) => {
+    addLine('-'.repeat(80));
+    addLine(title);
+    addLine('-'.repeat(80));
+  };
+
+  addSection('CELL DISCOVERY DEBUG - fabric-format-wphq');
+  addLine(`Timestamp: ${new Date().toISOString()}`);
+  addLine();
 
   // Get all nteract cell containers (what formatAllCells uses)
   const cellContainers = document.querySelectorAll(
     '.nteract-cell-container[data-cell-id]',
   );
-  log.info(
+  addLine(
     `Total .nteract-cell-container[data-cell-id] found: ${cellContainers.length}`,
   );
 
   // Get all Monaco editors for comparison
   const allEditors = document.querySelectorAll('.monaco-editor');
-  log.info(`Total .monaco-editor elements found: ${allEditors.length}`);
+  addLine(`Total .monaco-editor elements found: ${allEditors.length}`);
+  addLine();
 
   // Build a map of parent containers to group cells
   const containerGroups = new Map();
@@ -947,7 +1092,7 @@ function debugLogCellDiscovery() {
 
     cellDetails.push({
       index: i,
-      cellId: cellId,
+      cellId,
       visible: rect.width > 0 && rect.height > 0,
       display: style.display,
       visibility: style.visibility,
@@ -961,34 +1106,52 @@ function debugLogCellDiscovery() {
         height: Math.round(rect.height),
       },
       notebookContainer,
-      ancestorCount: ancestors.length,
+      ancestors: ancestors.slice(0, 5), // First 5 ancestors
     });
   }
 
   // Log grouped cells
-  log.info('-'.repeat(80));
-  log.info('CELLS GROUPED BY CONTAINER:');
-  log.info('-'.repeat(80));
+  addSubSection('CELLS GROUPED BY CONTAINER');
   for (const [containerKey, indices] of containerGroups.entries()) {
-    log.info(`Container: ${containerKey}`);
-    log.info(`  Cell indices: [${indices.join(', ')}]`);
-    log.info(`  Cell count: ${indices.length}`);
+    addLine(`Container: ${containerKey}`);
+    addLine(`  Cell indices: [${indices.join(', ')}]`);
+    addLine(`  Cell count: ${indices.length}`);
+    addLine();
   }
 
   // Log individual cell details
-  log.info('-'.repeat(80));
-  log.info('INDIVIDUAL CELL DETAILS:');
-  log.info('-'.repeat(80));
+  addSubSection('INDIVIDUAL CELL DETAILS');
   for (const detail of cellDetails) {
-    log.info(`Cell ${detail.index}:`, detail);
+    addLine(`Cell ${detail.index}:`);
+    addLine(`  cellId: ${detail.cellId}`);
+    addLine(
+      `  visible: ${detail.visible}, display: ${detail.display}, visibility: ${detail.visibility}`,
+    );
+    addLine(
+      `  hasEditor: ${detail.hasEditor}, cellType: ${detail.cellType}, language: ${detail.language}`,
+    );
+    addLine(
+      `  rect: top=${detail.rect.top}, left=${detail.rect.left}, width=${detail.rect.width}, height=${detail.rect.height}`,
+    );
+    if (detail.notebookContainer) {
+      addLine(
+        `  notebookContainer: ${detail.notebookContainer.tagName}#${detail.notebookContainer.id}`,
+      );
+      addLine(`    classes: ${detail.notebookContainer.classes}`);
+      addLine(`    dataAttrs: ${detail.notebookContainer.dataAttrs}`);
+    }
+    addLine(`  ancestors (first 5):`);
+    for (const anc of detail.ancestors) {
+      addLine(
+        `    ${anc.tagName}#${anc.id} classes="${anc.classes}" ${anc.dataAttrs}`,
+      );
+    }
+    addLine();
   }
 
   // Look for potential active notebook markers
-  log.info('-'.repeat(80));
-  log.info('POTENTIAL ACTIVE NOTEBOOK MARKERS:');
-  log.info('-'.repeat(80));
+  addSubSection('POTENTIAL ACTIVE NOTEBOOK MARKERS');
 
-  // Check for aria-selected, data-active, or similar attributes
   const potentialActiveMarkers = [
     '[aria-selected="true"]',
     '[data-active="true"]',
@@ -1007,7 +1170,6 @@ function debugLogCellDiscovery() {
     try {
       const elements = document.querySelectorAll(selector);
       if (elements.length > 0) {
-        // Filter to elements that contain or are near notebook content
         const relevant = Array.from(elements).filter((el) => {
           return (
             el.querySelector('.monaco-editor') ||
@@ -1017,17 +1179,16 @@ function debugLogCellDiscovery() {
           );
         });
         if (relevant.length > 0) {
-          log.info(`Selector: ${selector}`);
-          log.info(
+          addLine(`Selector: ${selector}`);
+          addLine(
             `  Total matches: ${elements.length}, Notebook-related: ${relevant.length}`,
           );
           for (const el of relevant.slice(0, 3)) {
-            log.info(`  Element:`, {
-              tagName: el.tagName,
-              id: el.id || '(none)',
-              classes: (el.className || '').substring(0, 80),
-            });
+            addLine(
+              `  Element: ${el.tagName}#${el.id || '(none)'} classes="${(el.className || '').substring(0, 80)}"`,
+            );
           }
+          addLine();
         }
       }
     } catch (_e) {
@@ -1036,60 +1197,48 @@ function debugLogCellDiscovery() {
   }
 
   // Check document.activeElement and its ancestors
-  log.info('-'.repeat(80));
-  log.info('ACTIVE ELEMENT HIERARCHY:');
-  log.info('-'.repeat(80));
+  addSubSection('ACTIVE ELEMENT HIERARCHY');
   let activeEl = document.activeElement;
   let depth = 0;
   while (activeEl && activeEl !== document.body && depth < 15) {
-    log.info(`  Depth ${depth}:`, {
-      tagName: activeEl.tagName,
-      id: activeEl.id || '(none)',
-      classes: (activeEl.className || '').substring(0, 80),
-    });
+    addLine(
+      `Depth ${depth}: ${activeEl.tagName}#${activeEl.id || '(none)'} classes="${(activeEl.className || '').substring(0, 80)}"`,
+    );
     activeEl = activeEl.parentElement;
     depth++;
   }
+  addLine();
 
   // Check visibility of iframes if present
-  log.info('-'.repeat(80));
-  log.info('IFRAME/FRAME INFO:');
-  log.info('-'.repeat(80));
-  log.info('Current window info:', {
-    isTop: window === window.top,
-    name: window.name || '(none)',
-    location: window.location.href.substring(0, 100),
-  });
+  addSubSection('IFRAME/FRAME INFO');
+  addLine(`isTop: ${window === window.top}`);
+  addLine(`name: ${window.name || '(none)'}`);
+  addLine(`location: ${window.location.href.substring(0, 150)}`);
+  addLine();
 
   // Status bar info
-  log.info('-'.repeat(80));
-  log.info('STATUS BAR INFO:');
-  log.info('-'.repeat(80));
+  addSubSection('STATUS BAR INFO');
   const statusBar = findStatusBar();
   if (statusBar) {
     const cellSelectionBtn = statusBar.querySelector(
       'button[name="CellSelection"]',
     );
     if (cellSelectionBtn) {
-      log.info('CellSelection button text:', cellSelectionBtn.textContent);
+      addLine(`CellSelection button text: "${cellSelectionBtn.textContent}"`);
     }
-    log.info('Status bar found:', {
-      tagName: statusBar.tagName,
-      classes: (statusBar.className || '').substring(0, 80),
-    });
+    addLine(`Status bar tagName: ${statusBar.tagName}`);
+    addLine(
+      `Status bar classes: ${(statusBar.className || '').substring(0, 80)}`,
+    );
   } else {
-    log.info('Status bar: NOT FOUND');
+    addLine('Status bar: NOT FOUND');
   }
 
-  log.info('='.repeat(80));
-  log.info('END CELL DISCOVERY DEBUG');
-  log.info('='.repeat(80));
+  addLine();
+  addSection('END CELL DISCOVERY DEBUG');
 
-  // Show notification to user
-  showNotification(
-    `Found ${cellContainers.length} cells in ${containerGroups.size} container(s). Check console for details.`,
-    'success',
-  );
+  // Show popup with the content
+  showDebugPopup(lines.join('\n'));
 }
 
 // ============================================================================
