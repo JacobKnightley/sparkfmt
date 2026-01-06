@@ -1283,13 +1283,18 @@ async function _formatCurrentCell() {
     return;
   }
 
-  // Determine cell index for error context
+  // Determine cell index for error context (only count visible cells from active notebook)
   const cellContainer = cell.closest('.nteract-cell-container[data-cell-id]');
   const allCells = document.querySelectorAll(
     '.nteract-cell-container[data-cell-id]',
   );
+  // Filter to visible cells only (active notebook) - fabric-format-wphq
+  const visibleCells = Array.from(allCells).filter((c) => {
+    const style = window.getComputedStyle(c);
+    return style.visibility !== 'hidden';
+  });
   const cellIndex = cellContainer
-    ? Array.from(allCells).indexOf(cellContainer) + 1
+    ? visibleCells.indexOf(cellContainer) + 1
     : undefined;
 
   log.debug(
@@ -1382,11 +1387,20 @@ async function formatAllCells() {
     return;
   }
 
-  // Get all cell containers
-  const cellContainers = document.querySelectorAll(
+  // Get all cell containers from the ACTIVE notebook only (fabric-format-wphq)
+  // When multiple notebooks are open, inactive notebooks have visibility: hidden
+  const allCellContainers = document.querySelectorAll(
     '.nteract-cell-container[data-cell-id]',
   );
+  const cellContainers = Array.from(allCellContainers).filter((cell) => {
+    const style = window.getComputedStyle(cell);
+    return style.visibility !== 'hidden';
+  });
   const totalCells = cellContainers.length;
+
+  log.debug(
+    `formatAllCells: found ${allCellContainers.length} total cells, ${totalCells} visible (active notebook)`,
+  );
 
   if (totalCells === 0) {
     hideOverlay();
