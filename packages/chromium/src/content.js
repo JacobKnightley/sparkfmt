@@ -975,298 +975,6 @@ function showTabbedDebugPopup(tabs) {
 }
 
 /**
- * Generate cell discovery debug content
- * Now async - scrolls through cells to ensure Monaco loads content for accurate detection
- */
-async function generateCellDiscoveryContent() {
-  const lines = [];
-  const addLine = (text = '') => lines.push(text);
-  const addSection = (title) => {
-    addLine('='.repeat(80));
-    addLine(title);
-    addLine('='.repeat(80));
-  };
-  const addSubSection = (title) => {
-    addLine('-'.repeat(80));
-    addLine(title);
-    addLine('-'.repeat(80));
-  };
-
-  addSection('CELL DISCOVERY DEBUG - fabric-format-wphq');
-  addLine(`Timestamp: ${new Date().toISOString()}`);
-  addLine();
-
-  // Get all nteract cell containers (what formatAllCells uses)
-  const allCellContainers = document.querySelectorAll(
-    '.nteract-cell-container[data-cell-id]',
-  );
-
-  // Filter to visible cells only (active notebook)
-  const cellContainers = Array.from(allCellContainers).filter((cell) => {
-    const style = window.getComputedStyle(cell);
-    return style.visibility !== 'hidden';
-  });
-
-  addLine(
-    `Total .nteract-cell-container[data-cell-id] found: ${allCellContainers.length}`,
-  );
-  addLine(`Visible cells (active notebook): ${cellContainers.length}`);
-
-  // Get all Monaco editors for comparison
-  const allEditors = document.querySelectorAll('.monaco-editor');
-  addLine(`Total .monaco-editor elements found: ${allEditors.length}`);
-  addLine();
-
-  // Capture scroll position to restore later
-  const scrollContainer = findScrollContainer();
-  const originalScroll = scrollContainer?.scrollTop || 0;
-
-  // Build a map of parent containers to group cells
-  const containerGroups = new Map();
-  const cellDetails = [];
-
-  // Scroll through each cell to gather accurate data (Monaco virtualizes content)
-  for (let i = 0; i < cellContainers.length; i++) {
-    const cell = cellContainers[i];
-    const cellId = cell.getAttribute('data-cell-id');
-
-    // Scroll to cell to ensure Monaco loads content
-    cell.scrollIntoView({ block: 'center', behavior: 'instant' });
-    await new Promise((r) => setTimeout(r, TIMING.SCROLL_SETTLE_MS));
-
-    // Focus editor to trigger content load
-    let editor = cell.querySelector('.monaco-editor');
-    if (editor) {
-      const textarea = editor.querySelector('textarea.inputarea');
-      if (textarea) {
-        textarea.focus();
-        await new Promise((r) => setTimeout(r, TIMING.DOM_SETTLE_MS));
-      }
-    }
-
-    // Re-query after scroll (Fabric may recreate DOM elements)
-    editor = cell.querySelector('.monaco-editor');
-
-    const rect = cell.getBoundingClientRect();
-    const style = window.getComputedStyle(cell);
-
-    // Walk up the DOM looking for notebook-level containers
-    let parent = cell.parentElement;
-    const ancestors = [];
-    let notebookContainer = null;
-
-    while (parent && parent !== document.body) {
-      const classes = parent.className || '';
-      const id = parent.id || '';
-      const dataAttrs = Array.from(parent.attributes)
-        .filter((a) => a.name.startsWith('data-'))
-        .map((a) => `${a.name}="${a.value}"`)
-        .join(' ');
-
-      // Look for potential notebook container markers
-      const isNotebookContainer =
-        classes.includes('notebook') ||
-        classes.includes('Notebook') ||
-        classes.includes('cell-list') ||
-        classes.includes('cellList') ||
-        id.includes('notebook') ||
-        id.includes('Notebook');
-
-      if (isNotebookContainer && !notebookContainer) {
-        notebookContainer = {
-          tagName: parent.tagName,
-          id: id || '(none)',
-          classes:
-            classes.substring(0, 100) + (classes.length > 100 ? '...' : ''),
-          dataAttrs: dataAttrs || '(none)',
-        };
-      }
-
-      // Track all ancestors with meaningful identifiers
-      if (classes || id || dataAttrs) {
-        ancestors.push({
-          tagName: parent.tagName,
-          id: id || '(none)',
-          classes:
-            classes.substring(0, 80) + (classes.length > 80 ? '...' : ''),
-          dataAttrs:
-            dataAttrs.substring(0, 80) + (dataAttrs.length > 80 ? '...' : ''),
-        });
-      }
-
-      parent = parent.parentElement;
-    }
-
-    // Group by the notebook container
-    const containerKey = notebookContainer
-      ? `${notebookContainer.tagName}#${notebookContainer.id}.${notebookContainer.classes.substring(0, 30)}`
-      : 'NO_CONTAINER';
-
-    if (!containerGroups.has(containerKey)) {
-      containerGroups.set(containerKey, []);
-    }
-    containerGroups.get(containerKey).push(i);
-
-    // Detect cell type using the editor we already have
-    const cellType = editor ? detectCellType(editor) : 'no-editor';
-    const language = editor ? mapCellTypeToLanguage(cellType) : null;
-
-    cellDetails.push({
-      index: i,
-      cellId,
-      visible: rect.width > 0 && rect.height > 0,
-      display: style.display,
-      visibility: style.visibility,
-      hasEditor: !!editor,
-      cellType,
-      language,
-      rect: {
-        top: Math.round(rect.top),
-        left: Math.round(rect.left),
-        width: Math.round(rect.width),
-        height: Math.round(rect.height),
-      },
-      notebookContainer,
-      ancestors: ancestors.slice(0, 5), // First 5 ancestors
-    });
-  }
-
-  // Log grouped cells
-  addSubSection('CELLS GROUPED BY CONTAINER');
-  for (const [containerKey, indices] of containerGroups.entries()) {
-    addLine(`Container: ${containerKey}`);
-    addLine(`  Cell indices: [${indices.join(', ')}]`);
-    addLine(`  Cell count: ${indices.length}`);
-    addLine();
-  }
-
-  // Log individual cell details
-  addSubSection('INDIVIDUAL CELL DETAILS');
-  for (const detail of cellDetails) {
-    addLine(`Cell ${detail.index}:`);
-    addLine(`  cellId: ${detail.cellId}`);
-    addLine(
-      `  visible: ${detail.visible}, display: ${detail.display}, visibility: ${detail.visibility}`,
-    );
-    addLine(
-      `  hasEditor: ${detail.hasEditor}, cellType: ${detail.cellType}, language: ${detail.language}`,
-    );
-    addLine(
-      `  rect: top=${detail.rect.top}, left=${detail.rect.left}, width=${detail.rect.width}, height=${detail.rect.height}`,
-    );
-    if (detail.notebookContainer) {
-      addLine(
-        `  notebookContainer: ${detail.notebookContainer.tagName}#${detail.notebookContainer.id}`,
-      );
-      addLine(`    classes: ${detail.notebookContainer.classes}`);
-      addLine(`    dataAttrs: ${detail.notebookContainer.dataAttrs}`);
-    }
-    addLine(`  ancestors (first 5):`);
-    for (const anc of detail.ancestors) {
-      addLine(
-        `    ${anc.tagName}#${anc.id} classes="${anc.classes}" ${anc.dataAttrs}`,
-      );
-    }
-    addLine();
-  }
-
-  // Look for potential active notebook markers
-  addSubSection('POTENTIAL ACTIVE NOTEBOOK MARKERS');
-
-  const potentialActiveMarkers = [
-    '[aria-selected="true"]',
-    '[data-active="true"]',
-    '[data-selected="true"]',
-    '.active',
-    '.selected',
-    '[class*="active"]',
-    '[class*="Active"]',
-    '[class*="selected"]',
-    '[class*="Selected"]',
-    '[class*="focus"]',
-    '[class*="Focus"]',
-  ];
-
-  for (const selector of potentialActiveMarkers) {
-    try {
-      const elements = document.querySelectorAll(selector);
-      if (elements.length > 0) {
-        const relevant = Array.from(elements).filter((el) => {
-          return (
-            el.querySelector('.monaco-editor') ||
-            el.querySelector('.nteract-cell-container') ||
-            el.closest('[class*="notebook"]') ||
-            el.closest('[class*="Notebook"]')
-          );
-        });
-        if (relevant.length > 0) {
-          addLine(`Selector: ${selector}`);
-          addLine(
-            `  Total matches: ${elements.length}, Notebook-related: ${relevant.length}`,
-          );
-          for (const el of relevant.slice(0, 3)) {
-            addLine(
-              `  Element: ${el.tagName}#${el.id || '(none)'} classes="${(el.className || '').substring(0, 80)}"`,
-            );
-          }
-          addLine();
-        }
-      }
-    } catch (_e) {
-      // Invalid selector, skip
-    }
-  }
-
-  // Check document.activeElement and its ancestors
-  addSubSection('ACTIVE ELEMENT HIERARCHY');
-  let activeEl = document.activeElement;
-  let depth = 0;
-  while (activeEl && activeEl !== document.body && depth < 15) {
-    addLine(
-      `Depth ${depth}: ${activeEl.tagName}#${activeEl.id || '(none)'} classes="${(activeEl.className || '').substring(0, 80)}"`,
-    );
-    activeEl = activeEl.parentElement;
-    depth++;
-  }
-  addLine();
-
-  // Check visibility of iframes if present
-  addSubSection('IFRAME/FRAME INFO');
-  addLine(`isTop: ${window === window.top}`);
-  addLine(`name: ${window.name || '(none)'}`);
-  addLine(`location: ${window.location.href.substring(0, 150)}`);
-  addLine();
-
-  // Status bar info
-  addSubSection('STATUS BAR INFO');
-  const statusBar = findStatusBar();
-  if (statusBar) {
-    const cellSelectionBtn = statusBar.querySelector(
-      'button[name="CellSelection"]',
-    );
-    if (cellSelectionBtn) {
-      addLine(`CellSelection button text: "${cellSelectionBtn.textContent}"`);
-    }
-    addLine(`Status bar tagName: ${statusBar.tagName}`);
-    addLine(
-      `Status bar classes: ${(statusBar.className || '').substring(0, 80)}`,
-    );
-  } else {
-    addLine('Status bar: NOT FOUND');
-  }
-
-  // Restore scroll position
-  if (scrollContainer) {
-    scrollContainer.scrollTop = originalScroll;
-  }
-
-  addLine();
-  addSection('END CELL DISCOVERY DEBUG');
-
-  return lines.join('\n');
-}
-
-/**
  * Scroll to a cell, focus its editor, and wait for Monaco content to stabilize.
  * Monaco virtualizes content, so we must scroll and wait for text to settle.
  *
@@ -1399,10 +1107,87 @@ async function scrollAndStabilizeCell(cellContainer) {
 }
 
 /**
- * Generate format preview content showing current vs formatted text for each cell.
- * Uses shared scrollAndStabilizeCell for proper Monaco content loading.
+ * Main debug function - shows tabbed popup with all debug info
  */
-async function generateFormatPreviewContent() {
+async function debugLogCellDiscovery() {
+  // Single pass through cells - same as Format button, but collects data instead of writing
+  const result = await formatAllCells(false);
+
+  if (!result) {
+    // formatAllCells showed an error notification
+    return;
+  }
+
+  const { cellData, totalCells } = result;
+
+  // Format the collected data for display
+  const cellDiscoveryContent = formatCellDiscoveryFromData(
+    cellData,
+    totalCells,
+  );
+  const formatPreviewContent = formatPreviewFromData(cellData, totalCells);
+
+  // Show popup with all content ready
+  const tabs = [
+    { name: '📋 Cell Discovery', content: cellDiscoveryContent },
+    { name: '🔄 Format Preview', content: formatPreviewContent },
+  ];
+
+  showTabbedDebugPopup(tabs);
+}
+
+/**
+ * Format cell discovery data for display (no scrolling needed - uses pre-collected data)
+ */
+function formatCellDiscoveryFromData(cellData, totalCells) {
+  const lines = [];
+  const addLine = (text = '') => lines.push(text);
+  const addSection = (title) => {
+    addLine('='.repeat(80));
+    addLine(title);
+    addLine('='.repeat(80));
+  };
+  const addSubSection = (title) => {
+    addLine('-'.repeat(80));
+    addLine(title);
+    addLine('-'.repeat(80));
+  };
+
+  addSection('CELL DISCOVERY DEBUG');
+  addLine(`Timestamp: ${new Date().toISOString()}`);
+  addLine(`Total cells: ${totalCells}`);
+  addLine();
+
+  addSubSection('INDIVIDUAL CELL DETAILS');
+  for (const cell of cellData) {
+    addLine(`Cell ${cell.index}:`);
+    addLine(`  cellId: ${cell.cellId}`);
+    addLine(
+      `  hasEditor: ${cell.hasEditor}, cellType: ${cell.cellType}, language: ${cell.language}`,
+    );
+    addLine(`  stabilization: ${cell.stabilizationMs}ms`);
+    addLine(`  status: ${cell.status}`);
+    addLine();
+  }
+
+  // Summary counts
+  const withEditor = cellData.filter((c) => c.hasEditor).length;
+  const formattable = cellData.filter((c) => c.language).length;
+
+  addSubSection('SUMMARY');
+  addLine(`Total cells: ${totalCells}`);
+  addLine(`With editor: ${withEditor}`);
+  addLine(`Formattable (Python/SQL): ${formattable}`);
+  addLine();
+
+  addSection('END CELL DISCOVERY DEBUG');
+  return lines.join('\n');
+}
+
+/**
+ * Format preview data for display (no scrolling needed - uses pre-collected data)
+ */
+function formatPreviewFromData(cellData, totalCells) {
   const lines = [];
   const addLine = (text = '') => lines.push(text);
   const addSection = (title) => {
@@ -1418,92 +1203,39 @@ async function generateFormatPreviewContent() {
 
   addSection('FORMAT PREVIEW');
   addLine(`Timestamp: ${new Date().toISOString()}`);
+  addLine(`Total cells: ${totalCells}`);
   addLine();
 
-  // Ensure formatters are initialized
-  if (!pythonInitialized) {
-    const initialized = await initializeFormatters();
-    if (!initialized) {
-      addLine('ERROR: Failed to initialize formatters');
-      return lines.join('\n');
-    }
-  }
-
-  // Get visible cells only (active notebook)
-  const allCellContainers = document.querySelectorAll(
-    '.nteract-cell-container[data-cell-id]',
-  );
-  const cellContainers = Array.from(allCellContainers).filter((cell) => {
-    const style = window.getComputedStyle(cell);
-    return style.visibility !== 'hidden';
-  });
-
-  addLine(`Total cells in active notebook: ${cellContainers.length}`);
-  addLine();
-
-  // Capture scroll position to restore later
-  const scrollContainer = findScrollContainer();
-  const originalScroll = scrollContainer?.scrollTop || 0;
-
-  let formattableCount = 0;
   let wouldChangeCount = 0;
   let alreadyFormattedCount = 0;
   let errorCount = 0;
 
-  for (let i = 0; i < cellContainers.length; i++) {
-    const cellContainer = cellContainers[i];
-    const cellId = cellContainer.getAttribute('data-cell-id');
+  for (const cell of cellData) {
+    addSubSection(`CELL ${cell.index}`);
+    addLine(`Cell ID: ${cell.cellId}`);
+    addLine(`Type: ${cell.cellType}`);
+    addLine(`Language: ${cell.language || 'unsupported'}`);
+    addLine(`Stabilization: ${cell.stabilizationMs}ms`);
 
-    addSubSection(`CELL ${i + 1}`);
-    addLine(`Cell ID: ${cellId}`);
-
-    // Use shared scroll+stabilize logic
-    const { editor, code, language, stabilizationMs } =
-      await scrollAndStabilizeCell(cellContainer);
-
-    if (!editor) {
-      addLine(`Type: no-editor (markdown/output cell)`);
-      addLine(`Status: SKIPPED`);
-      addLine();
-      continue;
-    }
-
-    const cellType = detectCellType(editor);
-    addLine(`Detected Type: ${cellType}`);
-    addLine(`Language: ${language || 'unsupported'}`);
-    addLine(`Stabilization: ${stabilizationMs}ms`);
-
-    if (!language) {
-      addLine(`Status: SKIPPED (unsupported language)`);
-      addLine();
-      continue;
-    }
-
-    formattableCount++;
-
-    if (!code.trim()) {
-      addLine(`Status: SKIPPED (empty cell)`);
+    if (!cell.hasEditor || !cell.language || !cell.code?.trim()) {
+      addLine(`Status: ${cell.status}`);
       addLine();
       continue;
     }
 
     addLine(
-      `Current Code (${code.length} chars, ${code.split('\n').length} lines):`,
+      `Current Code (${cell.code.length} chars, ${cell.code.split('\n').length} lines):`,
     );
     addLine('```');
-    addLine(code);
+    addLine(cell.code);
     addLine('```');
     addLine();
 
-    // Format the code (without applying)
-    const context = { cellIndex: i + 1, language };
-    const result = formatCell(code, language, context);
-
-    if (result.error) {
+    if (cell.error) {
       errorCount++;
       addLine(`Status: ERROR`);
-      addLine(`Error: ${result.error}`);
-    } else if (!result.changed) {
+      addLine(`Error: ${cell.error}`);
+    } else if (!cell.changed) {
       alreadyFormattedCount++;
       addLine(`Status: ALREADY FORMATTED ✓`);
     } else {
@@ -1511,23 +1243,17 @@ async function generateFormatPreviewContent() {
       addLine(`Status: WOULD CHANGE`);
       addLine();
       addLine(
-        `Formatted Code (${result.formatted.length} chars, ${result.formatted.split('\n').length} lines):`,
+        `Formatted Code (${cell.formatted.length} chars, ${cell.formatted.split('\n').length} lines):`,
       );
       addLine('```');
-      addLine(result.formatted);
+      addLine(cell.formatted);
       addLine('```');
     }
     addLine();
   }
 
-  // Restore scroll position
-  if (scrollContainer) {
-    scrollContainer.scrollTop = originalScroll;
-  }
-
   addSection('SUMMARY');
-  addLine(`Total cells: ${cellContainers.length}`);
-  addLine(`Formattable cells: ${formattableCount}`);
+  addLine(`Total cells: ${totalCells}`);
   addLine(`Would change: ${wouldChangeCount}`);
   addLine(`Already formatted: ${alreadyFormattedCount}`);
   addLine(`Errors: ${errorCount}`);
@@ -1535,59 +1261,6 @@ async function generateFormatPreviewContent() {
   addSection('END FORMAT PREVIEW');
 
   return lines.join('\n');
-}
-
-/**
- * Pre-scroll through all cells to load Monaco content.
- * This mimics what formatAllCells does, but without applying any changes.
- * Ensures all editors are loaded before gathering debug data.
- */
-async function preScrollAllCells() {
-  // Get visible cells only (active notebook)
-  const allCellContainers = document.querySelectorAll(
-    '.nteract-cell-container[data-cell-id]',
-  );
-  const cellContainers = Array.from(allCellContainers).filter((cell) => {
-    const style = window.getComputedStyle(cell);
-    return style.visibility !== 'hidden';
-  });
-
-  // Capture scroll position to restore later
-  const scrollContainer = findScrollContainer();
-  const originalScroll = scrollContainer?.scrollTop || 0;
-
-  // Scroll through each cell to load Monaco content (same as formatAllCells)
-  for (let i = 0; i < cellContainers.length; i++) {
-    const cellContainer = cellContainers[i];
-    // Use the same scroll+stabilize logic that formatAllCells uses
-    await scrollAndStabilizeCell(cellContainer);
-  }
-
-  // Restore scroll position
-  if (scrollContainer) {
-    scrollContainer.scrollTop = originalScroll;
-  }
-}
-
-/**
- * Main debug function - shows tabbed popup with all debug info
- */
-async function debugLogCellDiscovery() {
-  // Pre-scroll through all cells to load Monaco content FIRST
-  // This mimics what the Format button does, ensuring all editors are loaded
-  await preScrollAllCells();
-
-  // NOW gather debug data (editors are already loaded)
-  const cellDiscoveryContent = await generateCellDiscoveryContent();
-  const formatPreviewContent = await generateFormatPreviewContent();
-
-  // Show popup with all content ready
-  const tabs = [
-    { name: '📋 Cell Discovery', content: cellDiscoveryContent },
-    { name: '🔄 Format Preview', content: formatPreviewContent },
-  ];
-
-  showTabbedDebugPopup(tabs);
 }
 
 // ============================================================================
@@ -1670,8 +1343,10 @@ async function _formatCurrentCell() {
 
 /**
  * Format all cells in the notebook
+ * @param {boolean} write - If true, apply formatted code; if false, collect debug data only
+ * @returns {Promise<{cellData: Array}|undefined>} - When write=false, returns collected cell data for debug popup
  */
-async function formatAllCells() {
+async function formatAllCells(write = true) {
   showOverlay('Initializing...');
 
   // Initialize formatters
@@ -1709,6 +1384,9 @@ async function formatAllCells() {
   let _skipped = 0;
   const failedCells = []; // Track which cells failed for user feedback
 
+  // Collect debug data when write=false
+  const cellData = [];
+
   // Single pass: scroll to each cell, extract, format, apply
   for (let i = 0; i < cellContainers.length; i++) {
     const cellContainer = cellContainers[i];
@@ -1719,7 +1397,53 @@ async function formatAllCells() {
       editor,
       code: originalCode,
       language,
+      stabilizationMs,
     } = await scrollAndStabilizeCell(cellContainer);
+
+    // Collect debug data for this cell
+    if (!write) {
+      const cellId = cellContainer.getAttribute('data-cell-id');
+      const cellType = editor ? detectCellType(editor) : 'no-editor';
+
+      const cellInfo = {
+        index: i + 1,
+        cellId,
+        cellType,
+        language,
+        stabilizationMs,
+        hasEditor: !!editor,
+        code: originalCode,
+        formatted: null,
+        status: null,
+        error: null,
+        changed: false,
+      };
+
+      if (!editor) {
+        cellInfo.status = 'SKIPPED (no editor)';
+      } else if (!language) {
+        cellInfo.status = 'SKIPPED (unsupported language)';
+      } else if (!originalCode.trim()) {
+        cellInfo.status = 'SKIPPED (empty)';
+      } else {
+        // Format to show preview
+        const context = { cellIndex: i + 1, language };
+        const result = formatCell(originalCode, language, context);
+        if (result.error) {
+          cellInfo.status = 'ERROR';
+          cellInfo.error = result.error;
+        } else if (!result.changed) {
+          cellInfo.status = 'ALREADY FORMATTED ✓';
+        } else {
+          cellInfo.status = 'WOULD CHANGE';
+          cellInfo.formatted = result.formatted;
+          cellInfo.changed = true;
+        }
+      }
+
+      cellData.push(cellInfo);
+      continue;
+    }
 
     if (!editor) {
       _skipped++;
@@ -1773,6 +1497,11 @@ async function formatAllCells() {
   }
 
   hideOverlay();
+
+  // Return debug data when not writing
+  if (!write) {
+    return { cellData, totalCells };
+  }
 
   // Small delay to let scroll settle before showing notification
   await new Promise((r) => setTimeout(r, TIMING.SCROLL_SETTLE_MS));
