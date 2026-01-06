@@ -1538,19 +1538,50 @@ async function generateFormatPreviewContent() {
 }
 
 /**
+ * Pre-scroll through all cells to load Monaco content.
+ * This mimics what formatAllCells does, but without applying any changes.
+ * Ensures all editors are loaded before gathering debug data.
+ */
+async function preScrollAllCells() {
+  // Get visible cells only (active notebook)
+  const allCellContainers = document.querySelectorAll(
+    '.nteract-cell-container[data-cell-id]',
+  );
+  const cellContainers = Array.from(allCellContainers).filter((cell) => {
+    const style = window.getComputedStyle(cell);
+    return style.visibility !== 'hidden';
+  });
+
+  // Capture scroll position to restore later
+  const scrollContainer = findScrollContainer();
+  const originalScroll = scrollContainer?.scrollTop || 0;
+
+  // Scroll through each cell to load Monaco content (same as formatAllCells)
+  for (let i = 0; i < cellContainers.length; i++) {
+    const cellContainer = cellContainers[i];
+    // Use the same scroll+stabilize logic that formatAllCells uses
+    await scrollAndStabilizeCell(cellContainer);
+  }
+
+  // Restore scroll position
+  if (scrollContainer) {
+    scrollContainer.scrollTop = originalScroll;
+  }
+}
+
+/**
  * Main debug function - shows tabbed popup with all debug info
  */
 async function debugLogCellDiscovery() {
-  // Gather ALL data BEFORE showing popup to avoid scroll interference
-  // (popup backdrop/focus can interfere with scrollIntoView)
+  // Pre-scroll through all cells to load Monaco content FIRST
+  // This mimics what the Format button does, ensuring all editors are loaded
+  await preScrollAllCells();
 
-  // Generate cell discovery content (scrolls through cells)
+  // NOW gather debug data (editors are already loaded)
   const cellDiscoveryContent = await generateCellDiscoveryContent();
-
-  // Generate format preview content (scrolls through cells again)
   const formatPreviewContent = await generateFormatPreviewContent();
 
-  // NOW show popup with all content ready
+  // Show popup with all content ready
   const tabs = [
     { name: '📋 Cell Discovery', content: cellDiscoveryContent },
     { name: '🔄 Format Preview', content: formatPreviewContent },
