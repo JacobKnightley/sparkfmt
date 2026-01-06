@@ -52,31 +52,13 @@ const TIMING = {
 };
 
 // ============================================================================
-// Debug Logging
+// Logging
 // ============================================================================
 
-/**
- * Debug mode - enabled in development builds, disabled in production.
- * Controlled by esbuild's define of process.env.NODE_ENV.
- */
-const DEBUG_MODE = process.env.NODE_ENV === 'development';
-
 const log = {
-  /** Always shown - important state changes and results */
   info: (...args) => console.log('[fabric-format]', ...args),
-
-  /** Always shown - warnings */
   warn: (...args) => console.warn('[fabric-format]', ...args),
-
-  /** Always shown - errors */
   error: (...args) => console.error('[fabric-format]', ...args),
-
-  /** Only shown when DEBUG_MODE is true */
-  debug: (...args) => {
-    if (DEBUG_MODE) {
-      console.log('[fabric-format:debug]', ...args);
-    }
-  },
 };
 
 // Expose for testing (will be accessible via window.__fabric_format)
@@ -133,8 +115,6 @@ function _trackTimeout(timeoutId) {
  * Called automatically on page unload.
  */
 function cleanup() {
-  log.debug('Cleaning up resources...');
-
   // Disconnect all observers
   for (const observer of cleanupHandlers.observers) {
     try {
@@ -156,8 +136,6 @@ function cleanup() {
     clearTimeout(timeoutId);
   }
   cleanupHandlers.timeouts.length = 0;
-
-  log.debug('Cleanup complete');
 }
 
 // Register cleanup on page unload
@@ -217,12 +195,10 @@ async function initializeFormatters(
   }
 
   const wasmUrl = chrome.runtime.getURL('dist/ruff_wasm_bg.wasm');
-  log.debug('WASM URL:', wasmUrl);
 
   let lastError = null;
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
-      log.debug(`Initialization attempt ${attempt}/${maxRetries}`);
       await initializePythonFormatter({ wasmUrl });
       pythonInitialized = true;
       log.info('Formatters initialized successfully');
@@ -236,7 +212,6 @@ async function initializeFormatters(
 
       if (attempt < maxRetries) {
         const delay = baseDelayMs * 2 ** (attempt - 1); // Exponential backoff
-        log.debug(`Retrying in ${delay}ms...`);
         await new Promise((r) => setTimeout(r, delay));
       }
     }
@@ -274,16 +249,13 @@ function detectCellType(editor) {
   const modeElement =
     editor.querySelector('[data-mode-id]') || editor.closest('[data-mode-id]');
   if (modeElement) {
-    const mode = modeElement.getAttribute('data-mode-id');
-    log.debug('detectCellType: found data-mode-id =', mode);
-    return mode;
+    return modeElement.getAttribute('data-mode-id');
   }
 
   // Strategy 2: lang- class on editor
   const classList = editor.className || '';
   const langMatch = classList.match(/lang-(\w+)/);
   if (langMatch) {
-    log.debug('detectCellType: found lang- class =', langMatch[1]);
     return langMatch[1];
   }
 
@@ -296,7 +268,6 @@ function detectCellType(editor) {
       const classes = el.className || '';
       const match = classes.match(/language-(\w+)/);
       if (match) {
-        log.debug('detectCellType: found language- class =', match[1]);
         return match[1];
       }
     }
@@ -310,10 +281,6 @@ function detectCellType(editor) {
       /cell-(python|sql|sparksql|pyspark|scala|r)/i,
     );
     if (cellLangMatch) {
-      log.debug(
-        'detectCellType: found cell container class =',
-        cellLangMatch[1],
-      );
       return cellLangMatch[1];
     }
   }
@@ -326,7 +293,6 @@ function detectCellType(editor) {
     codeContent.includes('from ') ||
     codeContent.includes('create ')
   ) {
-    log.debug('detectCellType: heuristic detection suggests SQL');
     return 'sparksql';
   }
   if (
@@ -334,7 +300,6 @@ function detectCellType(editor) {
     codeContent.includes('import ') ||
     codeContent.includes('class ')
   ) {
-    log.debug('detectCellType: heuristic detection suggests Python');
     return 'python';
   }
 
@@ -454,24 +419,20 @@ function findActiveCell() {
     if (activeElement.classList?.contains('inputarea')) {
       const editor = activeElement.closest('.monaco-editor');
       if (editor) {
-        log.debug('findActiveCell: found via inputarea focus');
         return editor;
       }
     }
 
     const activeEditor = activeElement.closest('.monaco-editor');
     if (activeEditor) {
-      log.debug('findActiveCell: found via closest monaco-editor');
       return activeEditor;
     }
   }
 
   if (lastActiveEditor && document.contains(lastActiveEditor)) {
-    log.debug('findActiveCell: using lastActiveEditor');
     return lastActiveEditor;
   }
 
-  log.debug('findActiveCell: no active cell found');
   return null;
 }
 
@@ -511,12 +472,6 @@ function _findCurrentlyVisibleCells() {
     }
   }
 
-  log.debug(
-    'findCurrentlyVisibleCells: found',
-    cells.length,
-    'formattable, skipped:',
-    skipped,
-  );
   return cells;
 }
 
@@ -622,9 +577,6 @@ function extractCodeFromEditor(editorElement) {
   // Strategy 2: Fallback for different Monaco versions (direct .view-line children)
   if (lines.length === 0) {
     lines = editorElement.querySelectorAll('.view-line');
-    if (lines.length > 0) {
-      log.debug('extractCodeFromEditor: using fallback selector .view-line');
-    }
   }
 
   // Strategy 3: Fallback for even newer Monaco (lines-content container)
@@ -632,13 +584,9 @@ function extractCodeFromEditor(editorElement) {
     lines = editorElement.querySelectorAll(
       '[class*="lines-content"] [class*="view-line"]',
     );
-    if (lines.length > 0) {
-      log.debug('extractCodeFromEditor: using fallback selector lines-content');
-    }
   }
 
   const codeLines = [];
-  log.debug('extractCodeFromEditor: found', lines.length, 'view-lines');
 
   if (lines.length === 0) {
     // Last resort: try to get any text content from the editor
@@ -713,18 +661,10 @@ function extractCodeFromEditor(editorElement) {
     ? rawCode.replaceAll('\u00a0', ' ')
     : rawCode;
 
-  log.debug(
-    'extractCodeFromEditor: extracted',
-    codeLines.length,
-    'lines,',
-    code.length,
-    'chars',
-  );
   return code;
 }
 
 async function setCodeViaPaste(editorElement, codeToInsert) {
-  log.debug('setCodeViaPaste: inserting', codeToInsert.length, 'chars');
   try {
     // Scroll the editor into view first to ensure it's not virtualized
     editorElement.scrollIntoView({ block: 'center', behavior: 'instant' });
@@ -776,7 +716,6 @@ async function setCodeViaPaste(editorElement, codeToInsert) {
     pasteEvent.clipboardData.setData('text/plain', codeToInsert);
     textarea.dispatchEvent(pasteEvent);
 
-    log.debug('setCodeViaPaste: paste dispatched successfully');
     return true;
   } catch (error) {
     log.error('Paste failed:', error);
@@ -848,6 +787,483 @@ function showNotification(message, type = 'success') {
 }
 
 // ============================================================================
+// Debug: Tabbed Debug Popup (fabric-format-wphq)
+// ============================================================================
+
+/**
+ * Show a tabbed popup modal with debug output that can be easily copied.
+ * @param {Array<{name: string, content: string}>} tabs - Array of tab objects
+ */
+function showTabbedDebugPopup(tabs) {
+  // Remove existing popup if any
+  const existing = document.getElementById('fabric-formatter-debug-popup');
+  if (existing) existing.remove();
+  const existingBackdrop = document.getElementById(
+    'fabric-formatter-debug-backdrop',
+  );
+  if (existingBackdrop) existingBackdrop.remove();
+
+  let activeTabIndex = 0;
+
+  const popup = document.createElement('div');
+  popup.id = 'fabric-formatter-debug-popup';
+  popup.style.cssText = `
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 700px;
+    max-width: 90vw;
+    height: 85vh;
+    max-height: 900px;
+    background: #1e1e1e;
+    border: 1px solid #444;
+    border-radius: 8px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+    z-index: 999999;
+    display: flex;
+    flex-direction: column;
+    font-family: 'Consolas', 'Monaco', monospace;
+  `;
+
+  // Header with title and close button
+  const header = document.createElement('div');
+  header.style.cssText = `
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 16px;
+    background: #2d2d2d;
+    border-bottom: 1px solid #444;
+    border-radius: 8px 8px 0 0;
+  `;
+
+  const title = document.createElement('span');
+  title.textContent = 'Fabric Format - Debug';
+  title.style.cssText = 'color: #fff; font-weight: bold; font-size: 14px;';
+
+  const headerButtons = document.createElement('div');
+  headerButtons.style.cssText = 'display: flex; gap: 8px;';
+
+  const copyBtn = document.createElement('button');
+  copyBtn.textContent = '📋 Copy';
+  copyBtn.style.cssText = `
+    padding: 6px 12px;
+    background: #0078d4;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+  `;
+
+  const closeBtn = document.createElement('button');
+  closeBtn.textContent = '✕';
+  closeBtn.style.cssText = `
+    padding: 6px 10px;
+    background: #444;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+  `;
+
+  headerButtons.appendChild(copyBtn);
+  headerButtons.appendChild(closeBtn);
+  header.appendChild(title);
+  header.appendChild(headerButtons);
+
+  // Tab bar
+  const tabBar = document.createElement('div');
+  tabBar.style.cssText = `
+    display: flex;
+    background: #252526;
+    border-bottom: 1px solid #444;
+  `;
+
+  const tabButtons = [];
+  const contentArea = document.createElement('textarea');
+  contentArea.readOnly = true;
+  contentArea.style.cssText = `
+    flex: 1;
+    padding: 16px;
+    background: #1e1e1e;
+    color: #d4d4d4;
+    border: none;
+    resize: none;
+    font-family: 'Consolas', 'Monaco', monospace;
+    font-size: 11px;
+    line-height: 1.4;
+    overflow: auto;
+    white-space: pre;
+  `;
+
+  function switchTab(index) {
+    activeTabIndex = index;
+    contentArea.value = tabs[index].content;
+    tabButtons.forEach((btn, i) => {
+      btn.style.background = i === index ? '#1e1e1e' : '#2d2d2d';
+      btn.style.borderBottom =
+        i === index ? '2px solid #0078d4' : '2px solid transparent';
+      btn.style.color = i === index ? '#fff' : '#888';
+    });
+  }
+
+  tabs.forEach((tab, index) => {
+    const tabBtn = document.createElement('button');
+    tabBtn.textContent = tab.name;
+    tabBtn.style.cssText = `
+      padding: 10px 16px;
+      background: #2d2d2d;
+      color: #888;
+      border: none;
+      border-bottom: 2px solid transparent;
+      cursor: pointer;
+      font-size: 12px;
+      font-family: inherit;
+    `;
+    tabBtn.addEventListener('click', () => switchTab(index));
+    tabButtons.push(tabBtn);
+    tabBar.appendChild(tabBtn);
+  });
+
+  // Copy button copies current tab content
+  copyBtn.addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(tabs[activeTabIndex].content);
+      copyBtn.textContent = '✓ Copied!';
+      setTimeout(() => {
+        copyBtn.textContent = '📋 Copy';
+      }, 2000);
+    } catch (_e) {
+      copyBtn.textContent = '✕ Failed';
+    }
+  });
+
+  // Close handlers
+  const closePopup = () => {
+    popup.remove();
+    backdrop.remove();
+  };
+  closeBtn.addEventListener('click', closePopup);
+
+  popup.appendChild(header);
+  popup.appendChild(tabBar);
+  popup.appendChild(contentArea);
+
+  // Backdrop
+  const backdrop = document.createElement('div');
+  backdrop.id = 'fabric-formatter-debug-backdrop';
+  backdrop.style.cssText = `
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0,0,0,0.5);
+    z-index: 999998;
+  `;
+  backdrop.addEventListener('click', closePopup);
+
+  document.body.appendChild(backdrop);
+  document.body.appendChild(popup);
+
+  // Initialize first tab
+  switchTab(0);
+  contentArea.focus();
+}
+
+/**
+ * Scroll to a cell, focus its editor, and wait for Monaco content to stabilize.
+ * Monaco virtualizes content, so we must scroll and wait for text to settle.
+ *
+ * =========================================================================
+ * CRITICAL: Monaco Lazy-Loading Text Stabilization
+ * =========================================================================
+ * DO NOT REMOVE OR SIMPLIFY THIS FUNCTION without understanding fabric-format-ska.
+ *
+ * Monaco + Fabric lazy-loads cell content in stages:
+ *   1. Cell container exists in DOM (but may be virtualized/empty)
+ *   2. After scroll: .view-line divs are created (but empty!)
+ *   3. After focus: Text spans begin populating ASYNCHRONOUSLY
+ *   4. Text content arrives incrementally over multiple frames
+ *
+ * We MUST wait for text to stabilize because:
+ *   - Line count is NOT a reliable proxy (empty divs exist before text)
+ *   - Text length changes as spans load (100 chars → 150 → 200...)
+ *   - Only full text extraction + comparison detects true completion
+ *
+ * Previous attempts to "optimize" this by reducing checks or using proxies
+ * resulted in partial text capture and corrupted formatting. See:
+ *   - fabric-format-ska: Original bug report
+ *   - fabric-format-ot3: Performance audit with context
+ *
+ * SAFE optimizations: Make extractCodeFromEditor() faster (it's called often)
+ * UNSAFE: Reducing stableChecks, using line count, shortening timeouts
+ * =========================================================================
+ *
+ * @param {Element} cellContainer - The cell container element
+ * @returns {Promise<{editor: Element|null, code: string, language: string|null, stabilizationMs: number}>}
+ */
+async function scrollAndStabilizeCell(cellContainer) {
+  const startTime = performance.now();
+
+  // Scroll to cell to ensure content is loaded (Monaco virtualizes)
+  cellContainer.scrollIntoView({ block: 'center', behavior: 'instant' });
+  await new Promise((r) => setTimeout(r, TIMING.SCROLL_SETTLE_MS));
+
+  // Focus the editor to trigger Monaco to load content
+  let editor = cellContainer.querySelector('.monaco-editor');
+  if (editor) {
+    const textarea = editor.querySelector('textarea.inputarea');
+    if (textarea) {
+      textarea.focus();
+      await new Promise((r) => setTimeout(r, TIMING.DOM_SETTLE_MS));
+    }
+  }
+
+  // Re-query editor after scroll (Fabric may recreate DOM elements)
+  editor = cellContainer.querySelector('.monaco-editor');
+
+  if (!editor) {
+    return {
+      editor: null,
+      code: '',
+      language: null,
+      stabilizationMs: Math.round(performance.now() - startTime),
+    };
+  }
+
+  // =========================================================================
+  // CRITICAL: Wait for Monaco text to stabilize (3 consecutive stable reads)
+  // DO NOT REMOVE OR SIMPLIFY THIS SECTION
+  // =========================================================================
+  let lastExtractedText = '';
+  let stableChecks = 0;
+
+  // Early exit optimization: check if content is already stable
+  const initialText = extractCodeFromEditor(editor);
+  if (initialText.length > 0) {
+    await new Promise((r) => setTimeout(r, TIMING.EDITOR_LINE_POLL_MS));
+    const verifyText = editor ? extractCodeFromEditor(editor) : '';
+    if (verifyText === initialText && verifyText.length > 0) {
+      // Already stable - skip the full loop
+      lastExtractedText = verifyText;
+      stableChecks = 3;
+    } else {
+      // Not stable yet, initialize for the loop
+      lastExtractedText = verifyText;
+      stableChecks =
+        verifyText === initialText && verifyText.length > 0 ? 1 : 0;
+    }
+  }
+
+  // Adaptive polling: start fast (30ms), slow down after first stable reading
+  let pollInterval = TIMING.EDITOR_LINE_POLL_MS;
+
+  for (let attempt = 0; attempt < 100 && stableChecks < 3; attempt++) {
+    await new Promise((r) => setTimeout(r, pollInterval));
+
+    // Re-query editor only if disconnected (fabric-format-8hk)
+    // Monaco/Fabric may recreate DOM elements during virtualization
+    if (!editor?.isConnected) {
+      editor = cellContainer.querySelector('.monaco-editor');
+    }
+    if (editor) {
+      const currentText = extractCodeFromEditor(editor);
+      const lengthMatch = currentText.length === lastExtractedText.length;
+      if (
+        currentText.length > 0 &&
+        lengthMatch &&
+        currentText === lastExtractedText
+      ) {
+        stableChecks++;
+        // Adaptive: slow down after first stable reading
+        if (stableChecks === 1) {
+          pollInterval = Math.min(pollInterval * 1.5, 100);
+        }
+        if (stableChecks >= 3) {
+          break;
+        }
+      } else {
+        // Text changed - reset stability counter, go back to fast polling
+        stableChecks = 0;
+        pollInterval = TIMING.EDITOR_LINE_POLL_MS;
+        lastExtractedText = currentText;
+      }
+    }
+  }
+
+  const cellType = detectCellType(editor);
+  const language = mapCellTypeToLanguage(cellType);
+
+  return {
+    editor,
+    code: lastExtractedText,
+    language,
+    stabilizationMs: Math.round(performance.now() - startTime),
+  };
+}
+
+/**
+ * Main debug function - shows tabbed popup with all debug info
+ */
+async function debugLogCellDiscovery() {
+  // Single pass through cells - same as Format button, but collects data instead of writing
+  const result = await formatAllCells(false);
+
+  if (!result) {
+    // formatAllCells showed an error notification
+    return;
+  }
+
+  const { cellData, totalCells } = result;
+
+  // Format the collected data for display
+  const cellDiscoveryContent = formatCellDiscoveryFromData(
+    cellData,
+    totalCells,
+  );
+  const formatPreviewContent = formatPreviewFromData(cellData, totalCells);
+
+  // Show popup with all content ready
+  const tabs = [
+    { name: '📋 Cell Discovery', content: cellDiscoveryContent },
+    { name: '🔄 Format Preview', content: formatPreviewContent },
+  ];
+
+  showTabbedDebugPopup(tabs);
+}
+
+/**
+ * Format cell discovery data for display (no scrolling needed - uses pre-collected data)
+ */
+function formatCellDiscoveryFromData(cellData, totalCells) {
+  const lines = [];
+  const addLine = (text = '') => lines.push(text);
+  const addSection = (title) => {
+    addLine('='.repeat(80));
+    addLine(title);
+    addLine('='.repeat(80));
+  };
+  const addSubSection = (title) => {
+    addLine('-'.repeat(80));
+    addLine(title);
+    addLine('-'.repeat(80));
+  };
+
+  addSection('CELL DISCOVERY DEBUG');
+  addLine(`Timestamp: ${new Date().toISOString()}`);
+  addLine(`Total cells: ${totalCells}`);
+  addLine();
+
+  addSubSection('INDIVIDUAL CELL DETAILS');
+  for (const cell of cellData) {
+    addLine(`Cell ${cell.index}:`);
+    addLine(`  cellId: ${cell.cellId}`);
+    addLine(
+      `  hasEditor: ${cell.hasEditor}, cellType: ${cell.cellType}, language: ${cell.language}`,
+    );
+    addLine(`  stabilization: ${cell.stabilizationMs}ms`);
+    addLine(`  status: ${cell.status}`);
+    addLine();
+  }
+
+  // Summary counts
+  const withEditor = cellData.filter((c) => c.hasEditor).length;
+  const formattable = cellData.filter((c) => c.language).length;
+
+  addSubSection('SUMMARY');
+  addLine(`Total cells: ${totalCells}`);
+  addLine(`With editor: ${withEditor}`);
+  addLine(`Formattable (Python/SQL): ${formattable}`);
+  addLine();
+
+  addSection('END CELL DISCOVERY DEBUG');
+  return lines.join('\n');
+}
+
+/**
+ * Format preview data for display (no scrolling needed - uses pre-collected data)
+ */
+function formatPreviewFromData(cellData, totalCells) {
+  const lines = [];
+  const addLine = (text = '') => lines.push(text);
+  const addSection = (title) => {
+    addLine('='.repeat(80));
+    addLine(title);
+    addLine('='.repeat(80));
+  };
+  const addSubSection = (title) => {
+    addLine('-'.repeat(80));
+    addLine(title);
+    addLine('-'.repeat(80));
+  };
+
+  addSection('FORMAT PREVIEW');
+  addLine(`Timestamp: ${new Date().toISOString()}`);
+  addLine(`Total cells: ${totalCells}`);
+  addLine();
+
+  let wouldChangeCount = 0;
+  let alreadyFormattedCount = 0;
+  let errorCount = 0;
+
+  for (const cell of cellData) {
+    addSubSection(`CELL ${cell.index}`);
+    addLine(`Cell ID: ${cell.cellId}`);
+    addLine(`Type: ${cell.cellType}`);
+    addLine(`Language: ${cell.language || 'unsupported'}`);
+    addLine(`Stabilization: ${cell.stabilizationMs}ms`);
+
+    if (!cell.hasEditor || !cell.language || !cell.code?.trim()) {
+      addLine(`Status: ${cell.status}`);
+      addLine();
+      continue;
+    }
+
+    addLine(
+      `Current Code (${cell.code.length} chars, ${cell.code.split('\n').length} lines):`,
+    );
+    addLine('```');
+    addLine(cell.code);
+    addLine('```');
+    addLine();
+
+    if (cell.error) {
+      errorCount++;
+      addLine(`Status: ERROR`);
+      addLine(`Error: ${cell.error}`);
+    } else if (!cell.changed) {
+      alreadyFormattedCount++;
+      addLine(`Status: ALREADY FORMATTED ✓`);
+    } else {
+      wouldChangeCount++;
+      addLine(`Status: WOULD CHANGE`);
+      addLine();
+      addLine(
+        `Formatted Code (${cell.formatted.length} chars, ${cell.formatted.split('\n').length} lines):`,
+      );
+      addLine('```');
+      addLine(cell.formatted);
+      addLine('```');
+    }
+    addLine();
+  }
+
+  addSection('SUMMARY');
+  addLine(`Total cells: ${totalCells}`);
+  addLine(`Would change: ${wouldChangeCount}`);
+  addLine(`Already formatted: ${alreadyFormattedCount}`);
+  addLine(`Errors: ${errorCount}`);
+  addLine();
+  addSection('END FORMAT PREVIEW');
+
+  return lines.join('\n');
+}
+
+// ============================================================================
 // Format Actions
 // ============================================================================
 
@@ -863,8 +1279,6 @@ async function _formatCurrentCell() {
 
   const cellType = detectCellType(cell);
   const language = mapCellTypeToLanguage(cellType);
-
-  log.debug('formatCurrentCell - cellType:', cellType, 'language:', language);
 
   if (!language) {
     showNotification(
@@ -889,34 +1303,24 @@ async function _formatCurrentCell() {
     return;
   }
 
-  // Determine cell index for error context
+  // Determine cell index for error context (only count visible cells from active notebook)
   const cellContainer = cell.closest('.nteract-cell-container[data-cell-id]');
   const allCells = document.querySelectorAll(
     '.nteract-cell-container[data-cell-id]',
   );
+  // Filter to visible cells only (active notebook) - fabric-format-wphq
+  const visibleCells = Array.from(allCells).filter((c) => {
+    const style = window.getComputedStyle(c);
+    return style.visibility !== 'hidden';
+  });
   const cellIndex = cellContainer
-    ? Array.from(allCells).indexOf(cellContainer) + 1
+    ? visibleCells.indexOf(cellContainer) + 1
     : undefined;
-
-  log.debug(
-    'formatCurrentCell - code length:',
-    originalCode.length,
-    'pythonInitialized:',
-    pythonInitialized,
-  );
-  log.debug('formatCurrentCell - originalCode:', JSON.stringify(originalCode));
 
   // Create context for error messages
   const context = { cellIndex, language };
 
   const result = formatCell(originalCode, language, context);
-
-  log.debug('formatCurrentCell - result:', {
-    changed: result.changed,
-    error: result.error,
-    formattedLength: result.formatted?.length,
-  });
-  log.debug('formatCurrentCell - formatted:', JSON.stringify(result.formatted));
 
   if (result.error) {
     showNotification(`Format failed: ${result.error}`, 'error');
@@ -938,46 +1342,11 @@ async function _formatCurrentCell() {
 }
 
 /**
- * DEBUG: Flag to enable text stability verification.
- * When true, formats cell, undoes with Ctrl+Z, re-extracts and compares.
- * This detects if we captured partial text due to Fabric's lazy loading.
- * SET TO false FOR PRODUCTION - doubles processing time when enabled!
- */
-const DEBUG_TEXT_STABILITY = false;
-
-/**
- * Send Ctrl+Z (undo) to the editor
- */
-async function sendUndo(editorElement) {
-  const textarea = editorElement.querySelector('textarea.inputarea');
-  if (!textarea) {
-    log.warn('sendUndo: no textarea found');
-    return false;
-  }
-
-  textarea.focus();
-  await new Promise((r) => setTimeout(r, TIMING.DOM_SETTLE_MS));
-
-  textarea.dispatchEvent(
-    new KeyboardEvent('keydown', {
-      key: 'z',
-      code: 'KeyZ',
-      keyCode: 90,
-      which: 90,
-      ctrlKey: true,
-      bubbles: true,
-      cancelable: true,
-    }),
-  );
-
-  await new Promise((r) => setTimeout(r, TIMING.DOM_SETTLE_MS));
-  return true;
-}
-
-/**
  * Format all cells in the notebook
+ * @param {boolean} write - If true, apply formatted code; if false, collect debug data only
+ * @returns {Promise<{cellData: Array}|undefined>} - When write=false, returns collected cell data for debug popup
  */
-async function formatAllCells() {
+async function formatAllCells(write = true) {
   showOverlay('Initializing...');
 
   // Initialize formatters
@@ -988,10 +1357,15 @@ async function formatAllCells() {
     return;
   }
 
-  // Get all cell containers
-  const cellContainers = document.querySelectorAll(
+  // Get all cell containers from the ACTIVE notebook only (fabric-format-wphq)
+  // When multiple notebooks are open, inactive notebooks have visibility: hidden
+  const allCellContainers = document.querySelectorAll(
     '.nteract-cell-container[data-cell-id]',
   );
+  const cellContainers = Array.from(allCellContainers).filter((cell) => {
+    const style = window.getComputedStyle(cell);
+    return style.visibility !== 'hidden';
+  });
   const totalCells = cellContainers.length;
 
   if (totalCells === 0) {
@@ -1003,7 +1377,6 @@ async function formatAllCells() {
   // Capture scroll position using the same function we use elsewhere
   const scrollContainer = findScrollContainer();
   const originalScroll = scrollContainer?.scrollTop || 0;
-  log.debug('formatAllCells: captured scroll position', originalScroll);
 
   let formatted = 0;
   let alreadyFormatted = 0;
@@ -1011,121 +1384,65 @@ async function formatAllCells() {
   let _skipped = 0;
   const failedCells = []; // Track which cells failed for user feedback
 
+  // Collect debug data when write=false
+  const cellData = [];
+
   // Single pass: scroll to each cell, extract, format, apply
   for (let i = 0; i < cellContainers.length; i++) {
     const cellContainer = cellContainers[i];
     updateOverlay(`Processing cell ${i + 1}/${totalCells}...`);
 
-    // Always scroll to ensure full content is rendered (Monaco virtualizes tall cells)
-    cellContainer.scrollIntoView({ block: 'center', behavior: 'instant' });
+    // Use shared scroll+stabilize logic to get stable cell content
+    const {
+      editor,
+      code: originalCode,
+      language,
+      stabilizationMs,
+    } = await scrollAndStabilizeCell(cellContainer);
 
-    // Wait a moment for scroll to settle
-    await new Promise((r) => setTimeout(r, TIMING.SCROLL_SETTLE_MS));
+    // Collect debug data for this cell
+    if (!write) {
+      const cellId = cellContainer.getAttribute('data-cell-id');
+      const cellType = editor ? detectCellType(editor) : 'no-editor';
 
-    // =========================================================================
-    // CRITICAL: Monaco Lazy-Loading Text Stabilization
-    // =========================================================================
-    // DO NOT REMOVE OR SIMPLIFY THIS SECTION without understanding fabric-format-ska.
-    //
-    // Monaco + Fabric lazy-loads cell content in stages:
-    //   1. Cell container exists in DOM (but may be virtualized/empty)
-    //   2. After scroll: .view-line divs are created (but empty!)
-    //   3. After focus: Text spans begin populating ASYNCHRONOUSLY
-    //   4. Text content arrives incrementally over multiple frames
-    //
-    // We MUST wait for text to stabilize because:
-    //   - Line count is NOT a reliable proxy (empty divs exist before text)
-    //   - Text length changes as spans load (100 chars → 150 → 200...)
-    //   - Only full text extraction + comparison detects true completion
-    //
-    // Previous attempts to "optimize" this by reducing checks or using proxies
-    // resulted in partial text capture and corrupted formatting. See:
-    //   - fabric-format-ska: Original bug report
-    //   - fabric-format-ot3: Performance audit with context
-    //
-    // SAFE optimizations: Make extractCodeFromEditor() faster (it's called often)
-    // UNSAFE: Reducing stableChecks, using line count, shortening timeouts
-    // =========================================================================
+      const cellInfo = {
+        index: i + 1,
+        cellId,
+        cellType,
+        language,
+        stabilizationMs,
+        hasEditor: !!editor,
+        code: originalCode,
+        formatted: null,
+        status: null,
+        error: null,
+        changed: false,
+      };
 
-    // Find and FOCUS the editor to trigger Monaco to load full content
-    // Monaco lazy-loads text content only when the editor has focus
-    let editor = cellContainer.querySelector('.monaco-editor');
-    if (editor) {
-      const textarea = editor.querySelector('textarea.inputarea');
-      if (textarea) {
-        textarea.focus();
-        await new Promise((r) => setTimeout(r, TIMING.DOM_SETTLE_MS));
-      }
-    }
-
-    // Wait for editor content to stabilize (see critical note above)
-    // Optimization (fabric-format-pzt): Early exit + adaptive polling
-    let lastExtractedText = '';
-    let stableChecks = 0;
-    const startTime = performance.now();
-
-    // Early exit check: if content is already loaded (common for visible cells)
-    const initialText = editor ? extractCodeFromEditor(editor) : '';
-    if (initialText.length > 0) {
-      // Do a quick verification - wait one poll and check again
-      await new Promise((r) => setTimeout(r, TIMING.EDITOR_LINE_POLL_MS));
-      const verifyText = editor ? extractCodeFromEditor(editor) : '';
-      if (verifyText === initialText && verifyText.length > 0) {
-        // Already stable - skip the full loop
-        lastExtractedText = verifyText;
-        stableChecks = 3; // Mark as stable
-        log.debug(
-          `Cell ${i + 1}: early exit - already stable at ${verifyText.length} chars`,
-        );
+      if (!editor) {
+        cellInfo.status = 'SKIPPED (no editor)';
+      } else if (!language) {
+        cellInfo.status = 'SKIPPED (unsupported language)';
+      } else if (!originalCode.trim()) {
+        cellInfo.status = 'SKIPPED (empty)';
       } else {
-        // Not stable yet, initialize for the loop
-        lastExtractedText = verifyText;
-        stableChecks =
-          verifyText === initialText && verifyText.length > 0 ? 1 : 0;
-      }
-    }
-
-    // Adaptive polling: start fast (30ms), slow down after first stable reading
-    let pollInterval = TIMING.EDITOR_LINE_POLL_MS; // Start at 30ms
-
-    for (let attempt = 0; attempt < 100 && stableChecks < 3; attempt++) {
-      await new Promise((r) => setTimeout(r, pollInterval));
-
-      // Re-query editor only if disconnected (fabric-format-8hk)
-      // Monaco/Fabric may recreate DOM elements during virtualization
-      if (!editor?.isConnected) {
-        editor = cellContainer.querySelector('.monaco-editor');
-      }
-      if (editor) {
-        // Full text extraction - this is what we'll actually format
-        const currentText = extractCodeFromEditor(editor);
-
-        // Text must be non-empty and stable across 3 consecutive checks
-        // Optimization (fabric-format-zp6): length check first as fast negative
-        const lengthMatch = currentText.length === lastExtractedText.length;
-        if (
-          currentText.length > 0 &&
-          lengthMatch &&
-          currentText === lastExtractedText
-        ) {
-          stableChecks++;
-          // Adaptive: slow down after first stable reading (content is settling)
-          if (stableChecks === 1) {
-            pollInterval = Math.min(pollInterval * 1.5, 100); // Slow down, max 100ms
-          }
-          if (stableChecks >= 3) {
-            log.debug(
-              `Cell ${i + 1}: stable at ${currentText.length} chars after ${Math.round(performance.now() - startTime)}ms`,
-            );
-            break;
-          }
+        // Format to show preview
+        const context = { cellIndex: i + 1, language };
+        const result = formatCell(originalCode, language, context);
+        if (result.error) {
+          cellInfo.status = 'ERROR';
+          cellInfo.error = result.error;
+        } else if (!result.changed) {
+          cellInfo.status = 'ALREADY FORMATTED ✓';
         } else {
-          // Text changed - reset stability counter, go back to fast polling
-          stableChecks = 0;
-          pollInterval = TIMING.EDITOR_LINE_POLL_MS;
-          lastExtractedText = currentText;
+          cellInfo.status = 'WOULD CHANGE';
+          cellInfo.formatted = result.formatted;
+          cellInfo.changed = true;
         }
       }
+
+      cellData.push(cellInfo);
+      continue;
     }
 
     if (!editor) {
@@ -1133,17 +1450,11 @@ async function formatAllCells() {
       continue;
     }
 
-    // Use proper language detection
-    const cellType = detectCellType(editor);
-    const language = mapCellTypeToLanguage(cellType);
-
     if (!language) {
       _skipped++;
       continue;
     }
 
-    // Use the stable extracted text from the loop
-    const originalCode = lastExtractedText;
     if (!originalCode.trim()) {
       _skipped++;
       continue;
@@ -1176,71 +1487,6 @@ async function formatAllCells() {
       continue;
     }
 
-    // DEBUG: Text stability verification via undo
-    if (DEBUG_TEXT_STABILITY) {
-      await new Promise((r) => setTimeout(r, 100)); // Let paste settle
-
-      // Undo the paste
-      await sendUndo(editor);
-      await new Promise((r) => setTimeout(r, 150)); // Let undo settle
-
-      // Re-extract the text after undo
-      const afterUndo = extractCodeFromEditor(editor);
-
-      if (originalCode !== afterUndo) {
-        const cellId = cellContainer.getAttribute('data-cell-id');
-        log.info(`🔍 PARTIAL TEXT DETECTED - Cell ${i + 1} (id: ${cellId})`);
-        log.info(`🔍 Original extraction (${originalCode.length} chars):`);
-        log.info(`🔍 ---BEGIN ORIGINAL---`);
-        log.info(originalCode);
-        log.info(`🔍 ---END ORIGINAL---`);
-        log.info(`🔍 After undo (${afterUndo.length} chars):`);
-        log.info(`🔍 ---BEGIN AFTER UNDO---`);
-        log.info(afterUndo);
-        log.info(`🔍 ---END AFTER UNDO---`);
-        log.info(`🔍 Char diff: ${afterUndo.length - originalCode.length}`);
-        log.info(`🔍 Line count original: ${originalCode.split('\n').length}`);
-        log.info(`🔍 Line count after undo: ${afterUndo.split('\n').length}`);
-
-        // Find first difference position
-        let diffPos = 0;
-        const minLen = Math.min(originalCode.length, afterUndo.length);
-        while (
-          diffPos < minLen &&
-          originalCode[diffPos] === afterUndo[diffPos]
-        ) {
-          diffPos++;
-        }
-        log.info(`🔍 First difference at char position: ${diffPos}`);
-        log.info(
-          `🔍 Context around diff (original): "${originalCode.substring(Math.max(0, diffPos - 20), diffPos + 40)}"`,
-        );
-        log.info(
-          `🔍 Context around diff (after undo): "${afterUndo.substring(Math.max(0, diffPos - 20), diffPos + 40)}"`,
-        );
-
-        // DOM state at time of extraction
-        const viewLines = editor.querySelectorAll('.view-lines .view-line');
-        log.info(`🔍 DOM view-line count: ${viewLines.length}`);
-        log.info(
-          `🔍 Time since scroll: ${Math.round(performance.now() - startTime)}ms`,
-        );
-        log.info(`🔍 Editor rect:`, editor.getBoundingClientRect());
-        log.info(
-          `🔍 Cell container rect:`,
-          cellContainer.getBoundingClientRect(),
-        );
-
-        // Re-apply the format since we undid it
-        log.info(`🔍 Re-applying format after detection...`);
-        await setCodeViaPaste(editor, result.formatted);
-      } else {
-        // Text matched - redo the format (undo our undo)
-        // Actually we need to re-paste since undo reverted to original
-        await setCodeViaPaste(editor, result.formatted);
-      }
-    }
-
     formatted++;
     await new Promise((r) => setTimeout(r, TIMING.DOM_SETTLE_MS));
   }
@@ -1248,10 +1494,14 @@ async function formatAllCells() {
   // Restore scroll position
   if (scrollContainer) {
     scrollContainer.scrollTop = originalScroll;
-    log.debug('formatAllCells: restored scroll position to', originalScroll);
   }
 
   hideOverlay();
+
+  // Return debug data when not writing
+  if (!write) {
+    return { cellData, totalCells };
+  }
 
   // Small delay to let scroll settle before showing notification
   await new Promise((r) => setTimeout(r, TIMING.SCROLL_SETTLE_MS));
@@ -1342,8 +1592,8 @@ function createFloatingButton() {
     button.name = 'FormatCells';
     button.id = 'fabric-formatter-button';
     button.className = 'fui-Button r1alrhcs';
-    button.setAttribute('aria-label', 'Format all Python and SQL cells');
-    button.title = 'Format all cells (Python & SQL)';
+    button.setAttribute('aria-label', 'Format all cells');
+    button.title = 'Format all cells';
 
     button.innerHTML = `
       <span class="fui-Button__icon">
@@ -1353,7 +1603,15 @@ function createFloatingButton() {
       </span>
       <span>Format</span>`;
 
-    button.addEventListener('click', formatAllCells);
+    // Ctrl+click shows debug info, normal click formats (fabric-format-wphq)
+    button.addEventListener('click', (event) => {
+      if (event.ctrlKey || event.metaKey) {
+        event.preventDefault();
+        debugLogCellDiscovery();
+      } else {
+        formatAllCells();
+      }
+    });
 
     const cellSelectionButton = statusBar.querySelector(
       'button[name="CellSelection"]',
@@ -1368,7 +1626,6 @@ function createFloatingButton() {
     return true;
   }
 
-  log.debug('Status bar not found, will retry later');
   return false;
 }
 
@@ -1392,59 +1649,12 @@ async function waitForStatusBarAndInject(
     delay = Math.min(delay * 1.5, maxDelay);
   }
 
-  log.debug('No status bar found - this iframe is not the active notebook');
   return false;
 }
 
 // ============================================================================
 // Initialization
 // ============================================================================
-
-/**
- * Gather all distinguishing details about this frame for debugging
- */
-function getFrameDetails() {
-  const url = new URL(window.location.href);
-  return {
-    // URL info
-    hostname: url.hostname,
-    pathname: url.pathname,
-    search: url.search,
-    hash: url.hash,
-    // URL params
-    urlParams: Object.fromEntries(url.searchParams.entries()),
-    // Frame info
-    isTop: window === window.top,
-    frameDepth: (() => {
-      let depth = 0;
-      let win = window;
-      while (win !== win.top) {
-        depth++;
-        win = win.parent;
-      }
-      return depth;
-    })(),
-    frameName: window.name || '(none)',
-    // Document info
-    readyState: document.readyState,
-    title: document.title || '(none)',
-    bodyClasses: document.body?.className || '(none)',
-    // Key elements
-    hasMonacoEditors: document.querySelectorAll('.monaco-editor').length,
-    hasStatusBar: !!document.querySelector(
-      '[class*="status-bar"], [class*="statusbar"], [class*="StatusBar"]',
-    ),
-    hasNotebookContainer: !!document.querySelector(
-      '[class*="notebook"], [class*="Notebook"]',
-    ),
-    // Dimensions
-    innerWidth: window.innerWidth,
-    innerHeight: window.innerHeight,
-    // Visibility
-    documentHidden: document.hidden,
-    visibilityState: document.visibilityState,
-  };
-}
 
 function init() {
   const hostname = window.location.hostname;
@@ -1458,21 +1668,16 @@ function init() {
   // Only run in the "page" iframe - that's where the notebook UI lives
   // Skip: top frame, worker iframes, non-pbides iframes
   if (isTop) {
-    log.debug('Skipping top frame');
     return;
   }
 
   if (!hostname.includes('pbides')) {
-    log.debug('Skipping non-pbides iframe:', hostname);
     return;
   }
 
   if (iframeType === 'worker') {
-    log.debug('Skipping worker iframe');
     return;
   }
-
-  log.debug('Init starting:', getFrameDetails());
 
   setupEditorFocusTracking();
 
@@ -1482,14 +1687,6 @@ function init() {
     for (let attempt = 1; attempt <= 5; attempt++) {
       const editorCount = document.querySelectorAll('.monaco-editor').length;
       if (editorCount > 0) {
-        log.debug(
-          '✓ WINNER - Found',
-          editorCount,
-          'editors on attempt',
-          attempt,
-        );
-        log.debug('✓ WINNER frame details:', getFrameDetails());
-
         const success = await waitForStatusBarAndInject();
         log.info('Ready - button injected:', success);
         return;
@@ -1497,10 +1694,6 @@ function init() {
       // Wait between checks (total ~2.5 seconds)
       await new Promise((r) => setTimeout(r, TIMING.EDITOR_CHECK_INTERVAL_MS));
     }
-    log.debug(
-      '✗ LOSER - No editors found, giving up. Frame details:',
-      getFrameDetails(),
-    );
   };
 
   // Start checking once document is ready

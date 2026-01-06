@@ -108,9 +108,26 @@ When Biome or other linters suggest fixes:
   
 If a linter wants to rename an unused variable with `_` prefix, that's a code smell—delete the variable instead of silencing the warning.
 
-### Browser Extension Debugging
+### Browser Extension Development
 
-When debugging `packages/chromium`, remember that content scripts run in an **isolated context**. You cannot execute scripts directly in DevTools console against the extension's context—the page's JavaScript world and the extension's world are separate.
+**CRITICAL: You MUST run `npm run build:chromium` before testing ANY changes to the extension.**
+
+The content script uses ES6 imports that must be bundled by esbuild before the browser can load them. Editing `content.js` does NOTHING until you build. The browser loads from `packages/chromium/dist/`, not from `src/`.
+
+```bash
+# After ANY change to packages/chromium/src/*
+npm run build:chromium
+
+# Then reload the extension in Chrome/Edge:
+# 1. Go to chrome://extensions
+# 2. Click the refresh icon on "Fabric Format"
+# 3. Refresh the Fabric notebook page
+```
+
+**Debugging notes:**
+- Content scripts run in an **isolated context**—you cannot execute scripts directly in DevTools console against the extension's context
+- The page's JavaScript world and the extension's world are separate
+- Use `console.log` statements in `content.js` and check the browser's DevTools console (not the extension's background page)
 
 ### File Organization
 
