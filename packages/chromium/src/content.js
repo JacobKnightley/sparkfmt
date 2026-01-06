@@ -866,9 +866,10 @@ function showDebugPopup(content) {
     top: 50%;
     left: 50%;
     transform: translate(-50%, -50%);
-    width: 80%;
-    max-width: 900px;
-    max-height: 80vh;
+    width: 600px;
+    max-width: 90vw;
+    height: 80vh;
+    max-height: 800px;
     background: #1e1e1e;
     border: 1px solid #444;
     border-radius: 8px;
@@ -891,7 +892,7 @@ function showDebugPopup(content) {
   `;
 
   const title = document.createElement('span');
-  title.textContent = 'Cell Discovery Debug (fabric-format-wphq)';
+  title.textContent = 'Fabric Format - Debug Info';
   title.style.cssText = 'color: #fff; font-weight: bold; font-size: 14px;';
 
   const buttonContainer = document.createElement('div');
@@ -1738,14 +1739,6 @@ function createFloatingButton() {
     existing.remove();
   }
 
-  // Also clean up debug button if needed
-  const existingDebug = document.getElementById(
-    'fabric-formatter-debug-button',
-  );
-  if (existingDebug && !existingDebug.isConnected) {
-    existingDebug.remove();
-  }
-
   const statusBar = findStatusBar();
 
   if (statusBar) {
@@ -1769,42 +1762,26 @@ function createFloatingButton() {
       </span>
       <span>Format</span>`;
 
-    button.addEventListener('click', formatAllCells);
-
-    // Debug button for cell discovery logging (fabric-format-wphq)
-    const debugButton = document.createElement('button');
-    debugButton.type = 'button';
-    debugButton.name = 'DebugCells';
-    debugButton.id = 'fabric-formatter-debug-button';
-    debugButton.className = 'fui-Button r1alrhcs';
-    debugButton.setAttribute(
-      'aria-label',
-      'Debug: Log cell discovery info to console',
-    );
-    debugButton.title = 'Debug: Log cell info (see console)';
-
-    debugButton.innerHTML = `
-      <span class="fui-Button__icon">
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
-          <path d="M8 2a6 6 0 1 0 0 12A6 6 0 0 0 8 2ZM3 8a5 5 0 1 1 10 0A5 5 0 0 1 3 8Zm5.5-3a.5.5 0 0 0-1 0v3.5a.5.5 0 0 0 .5.5h2a.5.5 0 0 0 0-1H8.5V5Z"/>
-        </svg>
-      </span>
-      <span>Debug</span>`;
-
-    debugButton.addEventListener('click', debugLogCellDiscovery);
+    // Ctrl+click shows debug info, normal click formats (fabric-format-wphq)
+    button.addEventListener('click', (event) => {
+      if (event.ctrlKey || event.metaKey) {
+        event.preventDefault();
+        debugLogCellDiscovery();
+      } else {
+        formatAllCells();
+      }
+    });
 
     const cellSelectionButton = statusBar.querySelector(
       'button[name="CellSelection"]',
     );
     if (cellSelectionButton) {
       statusBar.insertBefore(button, cellSelectionButton);
-      statusBar.insertBefore(debugButton, cellSelectionButton);
     } else {
       statusBar.appendChild(button);
-      statusBar.appendChild(debugButton);
     }
 
-    log.info('Button injected into status bar (with debug button)');
+    log.info('Button injected into status bar');
     return true;
   }
 
